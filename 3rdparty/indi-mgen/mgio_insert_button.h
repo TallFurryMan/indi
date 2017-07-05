@@ -76,10 +76,12 @@ class MGIO_INSERT_BUTTON : MGC
             query[2] &= 0x7F;
             root.write(query);
             root.read(answer);
+            usleep(100000);
 
             query[2] |= 0x80;
             root.write(query);
             root.read(answer);
+            usleep(100000);
 
             _D("button %d sent", b);
 

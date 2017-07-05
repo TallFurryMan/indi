@@ -429,11 +429,30 @@ bool MGenAutoguider::Connect()
 ***************************************************************************************/
 bool MGenAutoguider::Disconnect()
 {
+    if(!device)
+        return true;
+
     if (device->isConnected())
     {
         _D("initiating disconnection.", "");
+
+        /* Move up to the main menu, top menu item */
+        for(int i = 0; i < 10; i++)
+            MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_ESC).ask(*device);
+
+        /* Move down to fourth menu item */
+        for(int i = 0; i < 4; i++)
+            MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+
+        /* Validate twice - there's still a problem with double sets... */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_RIGHT).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_RIGHT).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+
+        /* Turn device state off */
+        device->TurnPowerOff();
         RemoveTimer(ui.timer);
-        device->disable();
     }
 
     return !device->isConnected();

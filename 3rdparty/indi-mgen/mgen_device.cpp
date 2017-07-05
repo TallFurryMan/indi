@@ -215,6 +215,24 @@ int MGenDevice::TurnPowerOn()
     return Connect(vid, pid);
 }
 
+int MGenDevice::TurnPowerOff()
+{
+    if(lock())
+    {
+        /* Consider the device turned off, disable the FTDI connection */
+        tried_turn_on = false;
+        disable();
+
+        _D("device considered turned off","");
+        unlock();
+
+        return 0;
+    }
+
+    _E("failed locking device to turn it off","");
+    return -1;
+}
+
 int MGenDevice::setOpMode(IOMode const _mode)
 {
     int baudrate = 0;

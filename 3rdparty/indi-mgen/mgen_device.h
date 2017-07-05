@@ -98,8 +98,18 @@ class MGenDevice
      * turn the M-Gen device on.
      *
      * \note Switches operational mode to UNKNOWN if successful.
+     * \returns 0 if successful, else the return code from the FTDI library.
      */
     int TurnPowerOn();
+
+    /** \brief Turning the device off.
+     *
+     * This function DOES NOT use the UI to navigate to the menu item turning the M-Gen device off, but only
+     * disables the FTDO connection and resets the internal state of the device controller.
+     *
+     * \returns 0 if successful, else -1.
+     */
+    int TurnPowerOff();
 
   public:
     /** \brief Returning the current operational mode the device is in.
