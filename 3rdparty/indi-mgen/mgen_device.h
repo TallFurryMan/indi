@@ -111,6 +111,12 @@ class MGenDevice
      */
     int TurnPowerOff();
 
+    /** \brief Indicates whether we considered the device was already on when connecting.
+     *
+     * \return true if TurnPowerOn() was called during the life cycle of this device instance.
+     */
+    bool wasAlreadyOn() const { return !tried_turn_on; }
+
   public:
     /** \brief Returning the current operational mode the device is in.
      * \return the IOMode the device was set to by setOpMode().

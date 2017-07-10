@@ -13,6 +13,7 @@ find_package(ZLIB REQUIRED)
 find_package(FTDI1 REQUIRED)
 find_package(USB-1 REQUIRED)
 find_package(Threads REQUIRED)
+find_package(Boost REQUIRED system)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config.h )
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/indi_mgenautoguider.xml.cmake ${CMAKE_CURRENT_BINARY_DIR}/indi_mgenautoguider.xml )
@@ -22,6 +23,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${INDI_INCLUDE_DIR})
 include_directories(${FTDI1_INCLUDE_DIR})
 include_directories(${LIBUSB_1_INCLUDE_DIRS})
+include_directories(${Boost_INCLUDE_DIRS})
 
 include(CMakeCommon)
 
@@ -29,6 +31,14 @@ include(CMakeCommon)
 set(indimgenautoguider_SRCS
    ${CMAKE_CURRENT_SOURCE_DIR}/mgenautoguider.cpp
    ${CMAKE_CURRENT_SOURCE_DIR}/mgen_device.cpp
+   ${CMAKE_CURRENT_SOURCE_DIR}/mgen_phd2server.cpp
+   )
+
+set(indimgenautoguider_phd2test_SRCS
+   ${CMAKE_CURRENT_SOURCE_DIR}/mgenautoguider.cpp
+   ${CMAKE_CURRENT_SOURCE_DIR}/mgen_device.cpp
+   ${CMAKE_CURRENT_SOURCE_DIR}/mgen_phd2server.cpp
+   ${CMAKE_CURRENT_SOURCE_DIR}/mgen_phd2server_test.cpp
    )
 
 IF (UNITY_BUILD)
@@ -36,8 +46,10 @@ IF (UNITY_BUILD)
 ENDIF ()
 
 add_executable(indi_mgenautoguider ${indimgenautoguider_SRCS})
+add_executable(indi_mgenphd2_test ${indimgenautoguider_phd2test_SRCS})
 
-target_link_libraries(indi_mgenautoguider ${INDI_DRIVER_LIBRARIES} ${FTDI1_LIBRARIES} ${LIBUSB_1_LIBRARIES} pthread)
+target_link_libraries(indi_mgenautoguider ${INDI_DRIVER_LIBRARIES} ${FTDI1_LIBRARIES} ${LIBUSB_1_LIBRARIES} pthread ${Boost_LIBRARIES})
+target_link_libraries(indi_mgenphd2_test ${INDI_DRIVER_LIBRARIES} ${FTDI1_LIBRARIES} ${LIBUSB_1_LIBRARIES} pthread ${Boost_LIBRARIES})
 
 install(TARGETS indi_mgenautoguider RUNTIME DESTINATION bin )
 

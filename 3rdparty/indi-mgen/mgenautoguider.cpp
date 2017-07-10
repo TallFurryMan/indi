@@ -202,6 +202,7 @@ MGenAutoguider::MGenAutoguider(): device(NULL)
 {
     SetCCDParams(128, 64, 8, 5.0f, 5.0f);
     PrimaryCCD.setFrameBufferSize(PrimaryCCD.getXRes() * PrimaryCCD.getYRes() * PrimaryCCD.getBPP() / 8, true);
+    SetCCDCapability(CCD_HAS_STREAMING);
 }
 
 MGenAutoguider::~MGenAutoguider()
@@ -218,6 +219,17 @@ bool MGenAutoguider::initProperties()
     _D("initiating properties", "");
 
     INDI::CCD::initProperties();
+
+    /* Change defaults */
+    {
+        /* Make primary CCD compressed by default */
+        SetGuiderCCDCompression(true);
+
+        /* Change name of primary CCD main blob so it doesn't get confused with a capture */
+        //char const blob_name[] = "REMOTEUI1";
+        //strncpy(PrimaryCCD.FitsB.name, blob_name, sizeof(blob_name));
+        //strncpy(PrimaryCCD.FitsBP.name, blob_name, sizeof(blob_name));
+    }
 
     addDebugControl();
 
@@ -436,19 +448,22 @@ bool MGenAutoguider::Disconnect()
     {
         _D("initiating disconnection.", "");
 
-        /* Move up to the main menu, top menu item */
-        for(int i = 0; i < 10; i++)
-            MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_ESC).ask(*device);
+        if(!device->wasAlreadyOn())
+        {
+            /* Move up to the main menu, top menu item */
+            for(int i = 0; i < 10; i++)
+                MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_ESC).ask(*device);
 
-        /* Move down to fourth menu item */
-        for(int i = 0; i < 4; i++)
-            MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+            /* Move down to fourth menu item */
+            for(int i = 0; i < 4; i++)
+                MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
 
-        /* Validate twice - there's still a problem with double sets... */
-        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
-        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_RIGHT).ask(*device);
-        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_RIGHT).ask(*device);
-        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+            /* Validate twice - there's still a problem with double sets... */
+            MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+            MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_RIGHT).ask(*device);
+            MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_RIGHT).ask(*device);
+            MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+        }
 
         /* Turn device state off */
         device->TurnPowerOff();
