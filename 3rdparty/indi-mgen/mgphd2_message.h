@@ -56,6 +56,16 @@ public:
     }
 };
 
+class MGPHD2_EvStartCalibration: public MGPHD2_Message
+{
+public:
+    MGPHD2_EvStartCalibration(): MGPHD2_Message()
+    {
+        put("Event", "StartCalibration");
+        put("Mount", "MGen ST4");
+    }
+};
+
 class MGPHD2_EvCalibrationComplete: public MGPHD2_Message
 {
 public:
@@ -75,6 +85,18 @@ public:
     }
 };
 
+class MGPHD2_EvSettleDone: public MGPHD2_Message
+{
+public:
+    MGPHD2_EvSettleDone(int result): MGPHD2_Message()
+    {
+        put("Event", "SettleDone");
+        put("Status", result);
+        put("TotalFrames",1);
+        put("DroppedFrames",0);
+    }
+};
+
 class MGPHD2_EvAppState: public MGPHD2_Message
 {
 public:
@@ -82,6 +104,22 @@ public:
     {
         put("Event", "AppState");
         put("State", state);
+    }
+};
+
+class MGPHD2_MethodResult: public MGPHD2_Message
+{
+public:
+    MGPHD2_MethodResult(int result): MGPHD2_Message()
+    {
+        put("jsonrpc", "2.0");
+        put("result", result);
+    }
+    MGPHD2_MethodResult(int error, std::string text): MGPHD2_Message()
+    {
+        put("jsonrpc", "2.0");
+        put("error.code", error);
+        put("error.message", text);
     }
 };
 

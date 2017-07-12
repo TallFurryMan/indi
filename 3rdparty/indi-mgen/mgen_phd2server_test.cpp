@@ -29,25 +29,39 @@ int main(void)
         boost::asio::connect(s, resolver.resolve({"127.0.0.1","4400"}));
         //boost::asio::connect(s, resolver.resolve({"192.168.0.160","4400"}));
 
-        std::cerr << "Reading welcome" << std::endl;
+        sleep(1);
+        std::cerr << "Reading welcomes" << std::endl;
         boost::asio::streambuf buf;
         boost::system::error_code e;
         std::string welcome;
-        do
+        std::istream input(&buf);
+        for(int i=0; i < 2; i++)
         {
-            boost::asio::read_until(s, buf, "\r\n", e);
-            std::getline(std::istream(&buf),welcome);
+            auto bytes = boost::asio::read_until(s, buf, '\n', e);
+            std::getline(input, welcome);
+            welcome.erase(std::remove_if(welcome.begin(), welcome.end(), [](char const x){return '\r' == x || '\n' == x;}), welcome.end());
             //welcome.erase(welcome.rfind("\r"),1);
-            std::cerr << "Did read '" << welcome << "' with error " << e << std::endl;
+            std::cerr << "Did read " << welcome.length()+1 << " bytes (" << bytes << "available) : '" << welcome << "' with error " << e << std::endl;
         }
-        while(true);
 
+        sleep(1);
+        std::cerr << "Writing connection request" << std::endl;
+        boost::asio::write(s, boost::asio::buffer(std::string("{\"method\":\"set_connected\",\"params\":[1]}\n")), e);
+
+        std::cerr << "Reading back the connection result" << std::endl;
+        boost::asio::read_until(s, buf, '\n', e);
+        std::getline(input, welcome);
+        welcome.erase(std::remove_if(welcome.begin(), welcome.end(), [](char const x){return '\r' == x || '\n' == x;}), welcome.end());
+        std::cerr << "Did read '" << welcome << "' with error " << e << std::endl;
+
+        sleep(1);
         std::cerr << "Writing a random line" << std::endl;
         boost::asio::write(s, boost::asio::buffer(std::string("A random line\n")), e);
 
         std::cerr << "Reading back the random line" << std::endl;
         boost::asio::read_until(s, buf, '\n', e);
-        std::getline(std::istream(&buf),welcome);
+        std::getline(input, welcome);
+        welcome.erase(std::remove_if(welcome.begin(), welcome.end(), [](char const x){return '\r' == x || '\n' == x;}), welcome.end());
         std::cerr << "Did read '" << welcome << "' with error " << e << std::endl;
 
         std::cerr << "Closing client" << std::endl;

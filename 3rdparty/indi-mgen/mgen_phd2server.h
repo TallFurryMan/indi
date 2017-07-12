@@ -15,6 +15,7 @@
 #include <utility>
 #include <boost/asio.hpp>
 #include <thread>
+#include <boost/property_tree/ptree.hpp>
 
 class MGenPHD2Server
 {
@@ -23,8 +24,30 @@ public:
     virtual ~MGenPHD2Server();
 
 protected:
-    int run_session(boost::asio::ip::tcp::socket&);
+    struct Session
+    {
+        boost::asio::streambuf input_buffer;
+        boost::asio::streambuf output_buffer;
+        boost::asio::ip::tcp::socket &socket;
+        Session(boost::asio::ip::tcp::socket &a_socket): socket(a_socket) {}
+    };
+
+protected:
+    int run_session(Session&);
     void do_accept();
+
+protected:
+    struct _flags
+    {
+        bool connected;
+        bool guiding;
+        bool calibrating;
+    }
+    flags;
+
+protected:
+    boost::system::error_code write(Session&, boost::property_tree::ptree const &message);
+    boost::system::error_code read(Session&, boost::property_tree::ptree &message);
 
 private:
     std::thread *server_thread;
@@ -32,7 +55,6 @@ private:
     boost::asio::ip::tcp::endpoint endpoint;
     boost::asio::ip::tcp::acceptor acceptor;
     boost::asio::ip::tcp::socket socket;
-    char data[4096];
 };
 
 #endif /* _3RDPARTY_INDI_MGEN_MGEN_PHD2SERVER_H_ */
