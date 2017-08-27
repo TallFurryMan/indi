@@ -50,12 +50,12 @@ class MGCMD_READ_GUIDE_FRAME : MGC
     virtual IOMode opMode() const { return OPM_APPLICATION; }
 
   public:
-    float right_ascension_drift() const { return (float) (answer[3] + answer[2] * 256) / 256.0f - (answer[3] > 127 ? 256 : 0); }
-    float declination_drift()     const { return (float) (answer[5] + answer[4] * 256) / 256.0f - (answer[5] > 127 ? 256 : 0); }
+    float ascension_drift()   const { return (float) (answer[4] + answer[3] * 256) / 256.0f - (answer[3] > 127 ? 256.0f : 0.0f); }
+    float declination_drift() const { return (float) (answer[6] + answer[5] * 256) / 256.0f - (answer[5] > 127 ? 256.0f : 0.0f); }
 
   public:
-    char frame_index()    const { return answer[1] % 64; }
-    bool has_guide_star() const { return answer[1] & 0x40 == 0x40; }
+    char frame_index()    const { return answer[2] % 64; }
+    bool has_guide_star() const { return (answer[2] & 0x40) == 0x40; }
 
   public:
     virtual IOResult ask(MGenDevice &root) //throw(IOError)
@@ -71,7 +71,14 @@ class MGCMD_READ_GUIDE_FRAME : MGC
 
             root.unlock();
 
-            if (answer[0] == query[0] && (1 + 1 + 2 + 2 == bytes_read))
+            /* There is one additional byte which is not documented:
+             * 0x9D
+             * 0x01
+             * Frame number + star present on b6 (frame number all ones in no star?)
+             * RA_FRAC RA_INT
+             * DEC_FRAC DEC_INT
+             */
+            if (answer[0] == query[0] && (1 + 1 + 2 + 2 + 1 == bytes_read))
                 return CR_SUCCESS;
 
             _E("no ack (%d bytes read)", bytes_read);
@@ -81,7 +88,7 @@ class MGCMD_READ_GUIDE_FRAME : MGC
     }
 
   public:
-    MGCMD_READ_GUIDE_FRAME() : MGC(IOBuffer{ opCode(), 1 }, IOBuffer(1 + 1 + 2 + 2)){};
+    MGCMD_READ_GUIDE_FRAME() : MGC(IOBuffer{ opCode(), 1 }, IOBuffer(1 + 1 + 2 + 2 + 1)){};
 };
 
 #endif /* _3RDPARTY_INDI_MGEN_MGCMD_READ_GUIDE_FRAME_H_ */

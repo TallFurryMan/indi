@@ -55,6 +55,7 @@
 #include "mgcmd_nop1.h"
 #include "mgcmd_get_fw_version.h"
 #include "mgcmd_read_adcs.h"
+#include "mgcmd_read_guide_frame.h"
 #include "mgio_read_display_frame.h"
 #include "mgio_insert_button.h"
 
@@ -225,6 +226,13 @@ bool MGenAutoguider::initProperties()
         IUFillText(&version.firmware.text, "MGEN_FIRMWARE_VERSION", "Firmware version", "n/a");
         IUFillTextVector(&version.firmware.property, &version.firmware.text, 1, getDeviceName(), "Versions", "Versions",
                          TAB, IP_RO, 60, IPS_IDLE);
+        IUFillNumber(&guide.drift.ascension, "MGEN_DRIFT_RA", "RA", "%+06.2f pix", -65536.0f, +65536.0f, 0, 0);
+        IUFillNumber(&guide.drift.declination, "MGEN_DRIFT_DEC", "DEC", "%+06.2f pix", -65536.0f, +65536.0f, 0, 0);
+        IUFillNumberVector(&guide.drift.property, (INumber *)&guide.drift, 2, getDeviceName(), "MGEN_DRIFTS",
+                                   "Drifts", TAB, IP_RO, 60, IPS_IDLE);
+        IUFillLight(&guide.state.has_guide_star, "MGEN_HAS_GUIDE_STAR", "Is present?", IPS_IDLE);
+        IUFillLightVector(&guide.state.property, &guide.state.has_guide_star, 1, getDeviceName(), "MGEN_GUIDE_STAR",
+                          "Guide star", TAB, IPS_IDLE);
     }
 
     {
@@ -283,6 +291,8 @@ bool MGenAutoguider::updateProperties()
         _D("registering properties", "");
         defineText(&version.firmware.property);
         defineNumber(&voltage.property);
+        defineNumber(&guide.drift.property);
+        defineLight(&guide.state.property);
         defineSwitch(&ui.remote.property);
         defineNumber(&ui.framerate.property);
         defineSwitch(&ui.buttons.properties[0]);
@@ -293,6 +303,8 @@ bool MGenAutoguider::updateProperties()
         _D("removing properties", "");
         deleteProperty(version.firmware.property.name);
         deleteProperty(voltage.property.name);
+        deleteProperty(guide.drift.property.name);
+        deleteProperty(guide.state.property.name);
         deleteProperty(ui.remote.property.name);
         deleteProperty(ui.framerate.property.name);
         deleteProperty(ui.buttons.properties[0].name);
@@ -537,6 +549,38 @@ void MGenAutoguider::TimerHit()
 
                     ui.timestamp = tm;
                 }
+            }
+
+            /* Retrieve guide frame information */
+            if (guide.is_enabled && (0 == guide.timestamp.tv_sec || guide.timestamp.tv_sec < tm.tv_sec))
+            {
+                MGCMD_READ_GUIDE_FRAME gframe;
+
+                if (CR_SUCCESS == gframe.ask(*device))
+                {
+                    if (guide.state.frame_index != gframe.frame_index())
+                    {
+                        guide.drift.ascension.value = gframe.ascension_drift();
+                        _D("received right ascension drift %f", guide.drift.ascension.value);
+                        guide.drift.declination.value = gframe.declination_drift();
+                        _D("received declination drift %f", guide.drift.declination.value);
+
+                        guide.drift.property.s = IPS_OK;
+                        IDSetNumber(&guide.drift.property, NULL);
+
+                        guide.state.has_guide_star.s = gframe.has_guide_star() ? IPS_OK : IPS_ALERT;
+                        _D("guide start is %spresent", gframe.has_guide_star() ? "" : "NOT ");
+
+                        guide.state.property.s = IPS_OK;
+                        IDSetLight(&guide.state.property, NULL);
+
+                        guide.state.frame_index = gframe.frame_index();
+                    }
+                }
+                else
+                    _E("failed reading guide frame", "");
+
+                guide.timestamp = tm;
             }
 
             /* Rearm the timer, use a minimal timer period of 1s, and shorter if frame rate is higher than 1fps */

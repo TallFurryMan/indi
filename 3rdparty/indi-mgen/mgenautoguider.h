@@ -191,6 +191,27 @@ class MGenAutoguider : public INDI::CCD
     } ui;
 
   protected:
+    struct guide
+    {
+        int timer;
+        bool is_enabled;
+        struct timespec timestamp;
+        struct drift
+        {
+            INumber ascension;
+            INumber declination;
+            INumberVectorProperty property;
+        } drift;
+        struct state
+        {
+            int frame_index;
+            ILight has_guide_star;
+            ILightVectorProperty property;
+        } state;
+        guide(): timer(0), is_enabled(true), timestamp({ .tv_sec = 0, .tv_nsec = 0 }) {}
+    } guide;
+
+  protected:
     struct heartbeat
     {
         struct timespec timestamp; /*!< The last time this structure was read from the device. */
