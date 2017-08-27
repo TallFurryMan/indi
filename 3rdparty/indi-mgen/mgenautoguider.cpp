@@ -511,11 +511,24 @@ void MGenAutoguider::TimerHit()
                             if (1.1 <= voltage.levels.reference.value && voltage.levels.reference.value <= 1.3)
                                 voltage.property.s = IPS_OK;
                             else
+                            {
+                                if (voltage.property.s != IPS_ALERT )
+                                    _S("Warning: received out-of-spec reference voltage %fV (spec is around 1.23V)", voltage.levels.reference.value);
                                 voltage.property.s = IPS_ALERT;
+                            }
                         else
+                        {
+                            if (voltage.property.s != IPS_ALERT )
+                                _S("Warning: received out-of-spec input voltage %fV (spec is between 9V and 15V)", voltage.levels.input.value);
                             voltage.property.s = IPS_ALERT;
+                        }
                     else
+                    {
+                        if (voltage.property.s != IPS_ALERT )
+                            _S("Warning: received out-of-spec logic voltage %fV (spec is between 4.8V and 5.1V)", voltage.levels.logic.value);
                         voltage.property.s = IPS_ALERT;
+                    }
+
 
                     IDSetNumber(&voltage.property, NULL);
                 }
