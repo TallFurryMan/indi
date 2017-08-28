@@ -251,7 +251,7 @@ bool MGenAutoguider::initProperties()
     /* Change defaults */
     {
         /* Make primary CCD compressed by default */
-        SetGuiderCCDCompression(true);
+        //SetGuiderCCDCompression(true);
 
         /* Change name of primary CCD main blob so it doesn't get confused with a capture */
         //char const blob_name[] = "REMOTEUI1";
