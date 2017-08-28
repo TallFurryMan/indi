@@ -50,8 +50,8 @@ class MGCMD_READ_GUIDE_FRAME : MGC
     virtual IOMode opMode() const { return OPM_APPLICATION; }
 
   public:
-    float ascension_drift()   const { return (float) (answer[4] + answer[3] * 256) / 256.0f - (answer[3] > 127 ? 256.0f : 0.0f); }
-    float declination_drift() const { return (float) (answer[6] + answer[5] * 256) / 256.0f - (answer[5] > 127 ? 256.0f : 0.0f); }
+    float ascension_drift()   const { return (float) (answer[3] + answer[4] * 256) / 256.0f - (answer[4] > 127 ? 256.0f : 0.0f); }
+    float declination_drift() const { return (float) (answer[5] + answer[6] * 256) / 256.0f - (answer[6] > 127 ? 256.0f : 0.0f); }
 
   public:
     char frame_index()    const { return answer[2] % 64; }
