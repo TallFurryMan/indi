@@ -652,7 +652,7 @@ void MGenAutoguider::TimerHit()
                         IDSetNumber(&guide.drift.property, NULL);
 
                         guide.state.has_guide_star.s = gframe.has_guide_star() ? IPS_OK : IPS_ALERT;
-                        _D("guide start is %spresent", gframe.has_guide_star() ? "" : "NOT ");
+                        _D("guide star is %spresent", gframe.has_guide_star() ? "" : "NOT ");
 
                         guide.state.property.s = IPS_OK;
                         IDSetLight(&guide.state.property, NULL);
