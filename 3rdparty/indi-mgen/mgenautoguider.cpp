@@ -134,6 +134,34 @@ bool MGenAutoguider::ISNewSwitch(const char *dev, const char *name, ISState *sta
                 else ui.buttons.properties[1].s = IPS_ALERT;
                 IDSetSwitch(&ui.buttons.properties[1], NULL);
             }
+            if (!strcmp(name, "MGEN_PHD2"))
+            {
+                IUUpdateSwitch(&guide.phd2.property, states, names, n);
+                ISwitch *const key_switch = IUFindOnSwitch(&guide.phd2.property);
+                if (key_switch)
+                {
+                    if (!strcmp("MGEN_PHD2_SEARCH_STAR", key_switch->name))
+                    {
+                        engageSearchStar();
+                    }
+                    else if (!strcmp("MGEN_PHD2_CALIBRATE", key_switch->name))
+                    {
+                        engageCalibrate();
+                    }
+                    else if (!strcmp("MGEN_PHD2_START_GUIDING", key_switch->name))
+                    {
+                        engageToggleGuiding();
+                    }
+                    else if (!strcmp("MGEN_PHD2_STOP_GUIDING", key_switch->name))
+                    {
+                        engageToggleGuiding();
+                    }
+                    key_switch->s = ISS_OFF;
+                    guide.phd2.property.s = IPS_OK;
+                }
+                else guide.phd2.property.s = IPS_ALERT;
+                IDSetSwitch(&guide.phd2.property, NULL);
+            }
         }
     }
 
@@ -245,6 +273,12 @@ bool MGenAutoguider::initProperties()
         IUFillLight(&guide.state.has_guide_star, "MGEN_HAS_GUIDE_STAR", "Is present?", IPS_IDLE);
         IUFillLightVector(&guide.state.property, &guide.state.has_guide_star, 1, getDeviceName(), "MGEN_GUIDE_STAR",
                           "Guide star", TAB, IPS_IDLE);
+        IUFillSwitch(&guide.phd2.search_star, "MGEN_PHD2_SEARCH_STAR", "Search Star", ISS_OFF);
+        IUFillSwitch(&guide.phd2.calibrate, "MGEN_PHD2_CALIBRATE", "Calibrate", ISS_OFF);
+        IUFillSwitch(&guide.phd2.start_guiding, "MGEN_PHD2_START_GUIDING", "Start guiding", ISS_OFF);
+        IUFillSwitch(&guide.phd2.stop_guiding, "MGEN_PHD2_STOP_GUIDING", "Stop guiding", ISS_OFF);
+        IUFillSwitchVector(&guide.phd2.property,(ISwitch*) &guide.phd2, 4, getDeviceName(), "MGEN_PHD2",
+                          "PHD2", TAB, IP_RW, ISR_ATMOST1, 0, IPS_IDLE);
     }
 
     {
@@ -305,6 +339,7 @@ bool MGenAutoguider::updateProperties()
         defineNumber(&voltage.property);
         defineNumber(&guide.drift.property);
         defineLight(&guide.state.property);
+        defineSwitch(&guide.phd2.property);
         defineSwitch(&ui.remote.property);
         defineNumber(&ui.framerate.property);
         defineSwitch(&ui.buttons.properties[0]);
@@ -317,6 +352,7 @@ bool MGenAutoguider::updateProperties()
         deleteProperty(voltage.property.name);
         deleteProperty(guide.drift.property.name);
         deleteProperty(guide.state.property.name);
+        deleteProperty(guide.phd2.property.name);
         deleteProperty(ui.remote.property.name);
         deleteProperty(ui.framerate.property.name);
         deleteProperty(ui.buttons.properties[0].name);
@@ -664,4 +700,123 @@ bool MGenAutoguider::getHeartbeat()
         heartbeat.no_ack_count = 0;
 
     return true;
+}
+
+/**************************************************************************************
+ * Automated scenarii
+ **************************************************************************************/
+
+void MGenAutoguider::engageRootLevel()
+{
+    if(device && device->isConnected())
+    {
+        /* Move up to the main menu, top menu item */
+        for(int i = 0; i < 10; i++)
+            MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_ESC).ask(*device);
+    }
+}
+
+
+void MGenAutoguider::engageSearchStar()
+{
+    /* Back home */
+    engageRootLevel();
+
+    if(device && device->isConnected())
+    {
+        /* Move down to autoguiding */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+        
+        /* Move down to search */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+        
+        /* Keep defaults and search */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+        
+        /* Wait for search to finish */
+        sleep(10);
+        
+        /* Select the first star available, if any */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+
+        /* Now the star flag will tell if a star was found */
+    }
+}
+
+void MGenAutoguider::engageCalibrate()
+{
+    /* Back home */
+    engageRootLevel();
+
+    if(device && device->isConnected())
+    {
+        /* Move down to autoguiding */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+        
+        /* Already on Current Guiding */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+        
+        /* Go to page number and shift to page 2 */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_RIGHT).ask(*device);
+
+        /* Move up to calibration */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_UP).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_UP).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+
+        /* Remove existing calibration */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+
+        /* And launch calibration */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+        
+        /* Wait for calibration to finish */
+        sleep(90);
+        
+        /* Finish calibration */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+
+        /* Exit calibration, move to page number and return back to page 1 */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_ESC).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_LEFT).ask(*device);
+
+        /* Now the star movement is calibrated, or no star is available */
+    }
+}
+
+void MGenAutoguider::engageToggleGuiding()
+{
+    /* Back home */
+    engageRootLevel();
+
+    if(device && device->isConnected())
+    {
+        /* Move down to autoguiding */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+        
+        /* Already on Current Guiding */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+
+        /* Move down to toggle guiding */
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_DOWN).ask(*device);
+        MGIO_INSERT_BUTTON(MGIO_INSERT_BUTTON::IOB_SET).ask(*device);
+
+        /* Now guider is toggled */
+    }
 }

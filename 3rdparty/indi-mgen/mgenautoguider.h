@@ -208,6 +208,11 @@ class MGenAutoguider : public INDI::CCD
             ILight has_guide_star;
             ILightVectorProperty property;
         } state;
+        struct phd2
+        {
+            ISwitch search_star, calibrate, start_guiding, stop_guiding;
+            ISwitchVectorProperty property;
+        } phd2;
         guide(): timer(0), is_enabled(true), timestamp({ .tv_sec = 0, .tv_nsec = 0 }) {}
     } guide;
 
@@ -238,6 +243,12 @@ class MGenAutoguider : public INDI::CCD
      * \return false if command was not acknowledged, and disconnect the device after 5 failures.
      */
     bool getHeartbeat();
+
+  protected:
+    void engageRootLevel();
+    void engageSearchStar();
+    void engageCalibrate();
+    void engageToggleGuiding();
 };
 
 #endif // MGENAUTOGUIDER_H
