@@ -10,12 +10,12 @@
 
 #include "boost/property_tree/ptree.hpp"
 
-class MGPHD2_Message: public boost::property_tree::ptree
+class MGPHD2_Message: public boost::property_tree::iptree
 {
 protected:
     MGPHD2_Message()
     {
-        boost::property_tree::ptree();
+        boost::property_tree::iptree();
         put("Timestamp", time(nullptr));
         put("Host", "ASTRO1"/*getenv("HOSTNAME")*/);
         put("Inst", 1);

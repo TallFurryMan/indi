@@ -4,70 +4,106 @@
  *  Created on: 21 juin 2017
  *      Author: TallFurryMan
  */
+#define BOOST_TEST_MODULE PHD2 MGen Interface
+#include <boost/test/included/unit_test.hpp>
 
 #include "mgen_phd2server.h"
 using boost::asio::ip::tcp;
 
-bool local_test=false;
+#include <boost/property_tree/json_parser.hpp>
 
-int main(void)
+struct fixture
 {
-    //std::cerr << "Instantiating server" << std::endl;
-    MGenPHD2Server* server = new MGenPHD2Server();
+    MGenPHD2Server *server;
+    boost::asio::io_service io_service;
+    tcp::socket s;
+    tcp::resolver resolver;
 
-    if(local_test)
+    fixture():
+        io_service(),
+        s(io_service),
+        resolver(io_service)
     {
-        boost::asio::io_service io_service;
+        BOOST_TEST_MESSAGE("Starting server");
+        server = new MGenPHD2Server();
 
-        std::cerr << "Instantiating socket" << std::endl;
-        tcp::socket s(io_service);
-
-        std::cerr << "Instantiating resolver" << std::endl;
-        tcp::resolver resolver(io_service);
-
-        std::cerr << "Connecting 127.0.0.1:4400" << std::endl;
+        BOOST_TEST_MESSAGE("Connecting to server on 127.0.0.1:4400");
         boost::asio::connect(s, resolver.resolve({"127.0.0.1","4400"}));
-        //boost::asio::connect(s, resolver.resolve({"192.168.0.160","4400"}));
-
-        sleep(1);
-        std::cerr << "Reading welcomes" << std::endl;
-        boost::asio::streambuf buf;
-        boost::system::error_code e;
-        std::string welcome;
-        std::istream input(&buf);
-        for(int i=0; i < 2; i++)
-        {
-            auto bytes = boost::asio::read_until(s, buf, '\n', e);
-            std::getline(input, welcome);
-            welcome.erase(std::remove_if(welcome.begin(), welcome.end(), [](char const x){return '\r' == x || '\n' == x;}), welcome.end());
-            //welcome.erase(welcome.rfind("\r"),1);
-            std::cerr << "Did read " << welcome.length()+1 << " bytes (" << bytes << "available) : '" << welcome << "' with error " << e << std::endl;
-        }
-
-        sleep(1);
-        std::cerr << "Writing connection request" << std::endl;
-        boost::asio::write(s, boost::asio::buffer(std::string("{\"method\":\"set_connected\",\"params\":[1]}\n")), e);
-
-        std::cerr << "Reading back the connection result" << std::endl;
-        boost::asio::read_until(s, buf, '\n', e);
-        std::getline(input, welcome);
-        welcome.erase(std::remove_if(welcome.begin(), welcome.end(), [](char const x){return '\r' == x || '\n' == x;}), welcome.end());
-        std::cerr << "Did read '" << welcome << "' with error " << e << std::endl;
-
-        sleep(1);
-        std::cerr << "Writing a random line" << std::endl;
-        boost::asio::write(s, boost::asio::buffer(std::string("A random line\n")), e);
-
-        std::cerr << "Reading back the random line" << std::endl;
-        boost::asio::read_until(s, buf, '\n', e);
-        std::getline(input, welcome);
-        welcome.erase(std::remove_if(welcome.begin(), welcome.end(), [](char const x){return '\r' == x || '\n' == x;}), welcome.end());
-        std::cerr << "Did read '" << welcome << "' with error " << e << std::endl;
-
-        std::cerr << "Closing client" << std::endl;
-        s.close();
     }
 
-    std::cerr << "Terminating server" << std::endl;
-    delete server;
+    ~fixture()
+    {
+        BOOST_TEST_MESSAGE("Closing client");
+        s.close();
+
+        BOOST_TEST_MESSAGE("Terminating server");
+        delete server;
+    }
+};
+
+boost::system::error_code read_message(boost::property_tree::iptree &message, tcp::socket &s, boost::asio::streambuf &buf)
+{
+    boost::system::error_code e;
+    std::string sep("\n");
+    std::size_t const bytes = boost::asio::read_until(s, buf, sep, e);
+    if(!e)
+    {
+        std::string a_line {
+            boost::asio::buffers_begin(buf.data()),
+            boost::asio::buffers_begin(buf.data()) + bytes - sep.size()
+        };
+        buf.consume(bytes);
+        std::cerr << "Received: " << a_line << std::endl;
+        std::stringstream ss(a_line, std::ios_base::in);
+        boost::property_tree::json_parser::read_json(ss, message);
+    }
+    return e;
+}
+
+
+BOOST_FIXTURE_TEST_CASE(initial_messages, fixture)
+{
+    boost::asio::streambuf buf;
+    boost::system::error_code e;
+    boost::property_tree::iptree answer;
+
+    BOOST_TEST_MESSAGE("Reading version message");
+
+    BOOST_CHECK(!read_message(answer, s, buf));
+    BOOST_CHECK(!answer.get<std::string>("Event","").compare("Version"));
+    BOOST_CHECK(!answer.get<std::string>("Host","").empty());
+    BOOST_CHECK(!answer.get<std::string>("Inst","").compare("1"));
+    BOOST_CHECK(!answer.get<std::string>("PHDVersion","").compare("2.6.3"));
+    BOOST_CHECK(!answer.get<std::string>("PHDSubVer","").compare("MGenAutoguider"));
+    BOOST_CHECK(!answer.get<std::string>("MsgVersion","").compare("1"));
+
+    BOOST_TEST_MESSAGE("Reading application state message");
+
+    BOOST_CHECK(!read_message(answer, s, buf));
+    BOOST_CHECK(!answer.get<std::string>("Event","").compare("AppState"));
+    BOOST_CHECK(!answer.get<std::string>("Host","").empty());
+    BOOST_CHECK(!answer.get<std::string>("Inst","").compare("1"));
+    BOOST_CHECK(!answer.get<std::string>("State","").compare("Stopped"));
+}
+
+BOOST_FIXTURE_TEST_CASE(request_connect, fixture)
+{
+    boost::asio::streambuf buf;
+    boost::system::error_code e;
+    boost::property_tree::iptree answer;
+
+    BOOST_TEST_MESSAGE("Reading initial messages");
+
+    BOOST_CHECK(!read_message(answer, s, buf));
+    BOOST_CHECK(!read_message(answer, s, buf));
+
+    BOOST_TEST_MESSAGE("Requesting device connection");
+    boost::asio::write(s, boost::asio::buffer(std::string("{\"method\":\"set_connected\",\"params\":[1]}\n")), e);
+    BOOST_CHECK(!e);
+
+    BOOST_CHECK(!read_message(answer, s, buf));
+
+    boost::asio::write(s, boost::asio::buffer(std::string("A random line\n")), e);
+    BOOST_CHECK(!e);
+    BOOST_CHECK(!read_message(answer, s, buf));
 }
