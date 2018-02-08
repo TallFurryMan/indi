@@ -24,12 +24,20 @@ public:
     virtual ~MGenPHD2Server();
 
 public:
-    /** Request the device to search for a guiding star and select it */
-    bool (*deviceSearchStar)();
-    /** Request the device to start guiding on the current star */
-    bool (*deviceStartGuiding)();
-    /** Request the device to stop guiding on the current star */
-    bool (*deviceStopGuiding)();
+    class PHD2Device
+    {
+    public:
+        /** Request the device to search for a guiding star and select it */
+        virtual bool engageSearchStar() = 0;
+        /** Request the device to start guiding on the current star */
+        virtual bool engageCalibrate() = 0;
+        /** Request the device to start guiding on the current star */
+        virtual bool engageStartGuiding() = 0;
+        /** Request the device to stop guiding on the current star */
+        virtual bool engageStopGuiding() = 0;
+    };
+
+    PHD2Device *device;
 
 protected:
     /** A session with a phd2 client */
@@ -57,18 +65,22 @@ protected:
     };
 
 protected:
+    /** Stop the server completely */
     bool do_stop;
+
     /** Process a session with a client */
     int run_session(Session&);
-    /** Wait for a client */
+    
+    /** Wait for a client to connect */
     void do_accept();
 
 protected:
+    /** Internal flags */
     struct _flags
     {
-        bool connected;
-        bool guiding;
-        bool calibrating;
+        bool connected;     /**< Device is connected */
+        bool guiding;       /**< Device is guiding */
+        bool calibrating;   /**< Device is calibrating the guider */
     }
     flags;
 

@@ -19,6 +19,26 @@ struct fixture
     tcp::socket s;
     tcp::resolver resolver;
 
+    class FakeDriver: public MGenPHD2Server::PHD2Device
+    {
+    public:
+        int _dSearchStar;
+        int _dCalibrate;
+        int _dStartGuiding;
+        int _dStopGuiding;
+    public:
+        virtual bool engageSearchStar() { _dSearchStar++; return true; }
+        virtual bool engageCalibrate() { _dCalibrate++; return true; }
+        virtual bool engageStartGuiding() { _dStartGuiding++; return true; }
+        virtual bool engageStopGuiding() { _dStopGuiding++; return true; }
+    public:
+        FakeDriver():
+            _dSearchStar(0),
+            _dCalibrate(0),
+            _dStartGuiding(0),
+            _dStopGuiding(0) {};
+    };
+
     fixture():
         io_service(),
         s(io_service),
@@ -98,12 +118,59 @@ BOOST_FIXTURE_TEST_CASE(request_connect, fixture)
     BOOST_CHECK(!read_message(answer, s, buf));
 
     BOOST_TEST_MESSAGE("Requesting device connection");
+
     boost::asio::write(s, boost::asio::buffer(std::string("{\"method\":\"set_connected\",\"params\":[1]}\n")), e);
     BOOST_CHECK(!e);
 
+    BOOST_TEST_MESSAGE("Reading connection result");
+
     BOOST_CHECK(!read_message(answer, s, buf));
+    BOOST_CHECK(!answer.get<std::string>("result","").compare("1"));
+}
+
+BOOST_FIXTURE_TEST_CASE(garbage, fixture)
+{
+    boost::asio::streambuf buf;
+    boost::system::error_code e;
+    boost::property_tree::iptree answer;
+
+    BOOST_TEST_MESSAGE("Reading initial messages");
+
+    BOOST_CHECK(!read_message(answer, s, buf));
+    BOOST_CHECK(!read_message(answer, s, buf));
+
+    BOOST_TEST_MESSAGE("Writing garbage");
 
     boost::asio::write(s, boost::asio::buffer(std::string("A random line\n")), e);
     BOOST_CHECK(!e);
+
+    BOOST_TEST_MESSAGE("Reading result");
+
     BOOST_CHECK(!read_message(answer, s, buf));
+    BOOST_CHECK(!answer.get<std::string>("error.code","").compare("2"));
+    BOOST_CHECK(!answer.get<std::string>("error.message","").compare("Invalid"));
 }
+
+BOOST_FIXTURE_TEST_CASE(request_connect_with_callbacks, fixture)
+{
+    boost::asio::streambuf buf;
+    boost::system::error_code e;
+    boost::property_tree::iptree answer;
+
+    BOOST_TEST_MESSAGE("Reading initial messages");
+
+    BOOST_CHECK(!read_message(answer, s, buf));
+    BOOST_CHECK(!read_message(answer, s, buf));
+
+    FakeDriver d;
+    server->device = &d;
+
+    BOOST_TEST_MESSAGE("Requesting device connection with device callbacks");
+    boost::asio::write(s, boost::asio::buffer(std::string("{\"method\":\"set_connected\",\"params\":[1]}\n")), e);
+    BOOST_CHECK(!e);
+    BOOST_TEST_MESSAGE("Reading connection result with device callbacks");
+    BOOST_CHECK(!read_message(answer, s, buf));
+    BOOST_CHECK(!answer.get<std::string>("result","").compare("0"));
+}
+
+
