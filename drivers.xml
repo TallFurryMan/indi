@@ -980,6 +980,10 @@
             <driver name="IPX800v4">indi_ipx800v4</driver>
             <version>1.1</version>
         </device>
+        <device label="ESPHome Observatory" manufacturer="ESPHome">
+            <driver name="ESPHome Observatory">indi_esphome_observatory</driver>
+            <version>1.0</version>
+        </device>
         <device label="Simulator IO" manufacturer="Simulator">
             <driver name="Simulator IO">indi_simulator_io</driver>
             <version>1.0</version>

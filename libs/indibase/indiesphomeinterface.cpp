@@ -126,14 +126,17 @@ bool ESPHomeInterface::processESPHomeState()
         return false;
     }
 
-    ESPHome::State state;
-    if (!m_Client.readState(state))
+    ESPHome::Frame frame;
+    if (!m_Client.readFrame(frame))
     {
         setLastError("ESPHome state read failed.");
         return false;
     }
 
-    ESPHomeStateChanged(state);
+    ESPHome::State state;
+    if (ESPHome::NativeAPIClient::parseState(frame.type, frame.payload, state))
+        ESPHomeStateChanged(state);
+
     return true;
 }
 
