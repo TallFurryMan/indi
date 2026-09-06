@@ -73,8 +73,8 @@ class ESPHomeObservatory : public INDI::DefaultDevice,
         void resetBindings();
         void updateDeviceInfoProperty();
         bool hasPendingESPHomeData() const;
-        std::string entityLabel(const INDI::ESPHome::EntityInfo &entity) const;
-        std::string weatherParameterForEntity(const INDI::ESPHome::EntityInfo &entity) const;
+        static std::string entityLabel(const INDI::ESPHome::EntityInfo &entity);
+        static std::string weatherParameterForEntity(const INDI::ESPHome::EntityInfo &entity);
         void bindOutputEntity(const INDI::ESPHome::EntityInfo &entity);
         void bindInputEntity(const INDI::ESPHome::EntityInfo &entity);
         void bindWeatherEntity(const INDI::ESPHome::EntityInfo &entity);

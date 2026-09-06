@@ -47,7 +47,7 @@ class ESPHomeInterface
         const ESPHome::EntityInfo *findESPHomeEntityByKey(uint32_t key) const;
 
         bool isESPHomeConnected() const;
-        bool isESPHomeEncryptionSupported() const;
+        static bool isESPHomeEncryptionSupported();
         const std::string &getESPHomeLastError() const;
 
         virtual void ESPHomeDeviceInfoAvailable(const ESPHome::DeviceInfo &info);
@@ -60,7 +60,7 @@ class ESPHomeInterface
         DefaultDevice *m_defaultDevice {nullptr};
         ESPHome::NativeAPIClient m_Client;
         ESPHome::HelloResponse m_Hello;
-        ESPHome::ConnectResponse m_Connect;
+        ESPHome::AuthenticationResponse m_Authentication;
         ESPHome::DeviceInfo m_DeviceInfo;
         std::vector<ESPHome::EntityInfo> m_Entities;
         std::string m_LastError;

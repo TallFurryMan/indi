@@ -374,7 +374,7 @@ bool ESPHomeObservatory::hasPendingESPHomeData() const
     return result > 0 && FD_ISSET(PortFD, &readSet);
 }
 
-std::string ESPHomeObservatory::entityLabel(const INDI::ESPHome::EntityInfo &entity) const
+std::string ESPHomeObservatory::entityLabel(const INDI::ESPHome::EntityInfo &entity)
 {
     if (!entity.name.empty())
         return entity.name;
@@ -385,7 +385,7 @@ std::string ESPHomeObservatory::entityLabel(const INDI::ESPHome::EntityInfo &ent
     return INDI::ESPHome::NativeAPIClient::entityTypeName(entity.type);
 }
 
-std::string ESPHomeObservatory::weatherParameterForEntity(const INDI::ESPHome::EntityInfo &entity) const
+std::string ESPHomeObservatory::weatherParameterForEntity(const INDI::ESPHome::EntityInfo &entity)
 {
     const auto deviceClass = lowerASCII(entity.deviceClass);
     const auto objectId = lowerASCII(entity.objectId);
@@ -446,7 +446,7 @@ void ESPHomeObservatory::bindWeatherEntity(const INDI::ESPHome::EntityInfo &enti
     if (parameter.empty())
         return;
 
-    const auto duplicate = std::find_if(m_WeatherBindings.begin(), m_WeatherBindings.end(), [&parameter](const auto &binding)
+    const auto duplicate = std::find_if(m_WeatherBindings.begin(), m_WeatherBindings.end(), [&parameter](const auto & binding)
     {
         return binding.parameter == parameter;
     });
@@ -469,7 +469,7 @@ int ESPHomeObservatory::inputIndexForKey(uint32_t key) const
 
 const ESPHomeObservatory::WeatherBinding *ESPHomeObservatory::weatherBindingForKey(uint32_t key) const
 {
-    const auto it = std::find_if(m_WeatherBindings.begin(), m_WeatherBindings.end(), [key](const auto &binding)
+    const auto it = std::find_if(m_WeatherBindings.begin(), m_WeatherBindings.end(), [key](const auto & binding)
     {
         return binding.key == key;
     });

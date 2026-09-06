@@ -44,23 +44,12 @@ bool ESPHomeInterface::connectESPHome(int socketFD, const std::string &clientInf
     m_IsConnected = false;
     m_Entities.clear();
     m_DeviceInfo = ESPHome::DeviceInfo {};
+    m_Authentication = ESPHome::AuthenticationResponse {};
     m_Client.setSocket(socketFD);
 
     if (!m_Client.sendHello(clientInfo, m_Hello))
     {
         setLastError("ESPHome hello failed.");
-        return false;
-    }
-
-    if (!m_Client.connect(password, m_Connect))
-    {
-        setLastError("ESPHome connect failed.");
-        return false;
-    }
-
-    if (m_Connect.invalidPassword)
-    {
-        setLastError("ESPHome rejected the API password.");
         return false;
     }
 
@@ -71,6 +60,27 @@ bool ESPHomeInterface::connectESPHome(int socketFD, const std::string &clientInf
     }
 
     ESPHomeDeviceInfoAvailable(m_DeviceInfo);
+
+    if (m_DeviceInfo.usesPassword)
+    {
+        if (password.empty())
+        {
+            setLastError("ESPHome legacy API password is required.");
+            return false;
+        }
+
+        if (!m_Client.authenticate(password, m_Authentication))
+        {
+            setLastError("ESPHome legacy authentication failed.");
+            return false;
+        }
+
+        if (m_Authentication.invalidPassword)
+        {
+            setLastError("ESPHome rejected the legacy API password.");
+            return false;
+        }
+    }
 
     if (!m_Client.listEntities(m_Entities))
     {
@@ -135,7 +145,27 @@ bool ESPHomeInterface::processESPHomeState()
 
     ESPHome::State state;
     if (ESPHome::NativeAPIClient::parseState(frame.type, frame.payload, state))
+    {
         ESPHomeStateChanged(state);
+        return true;
+    }
+
+    if (ESPHome::NativeAPIClient::isPingRequest(frame.type))
+    {
+        if (!m_Client.sendPingResponse())
+        {
+            setLastError("ESPHome ping response failed.");
+            return false;
+        }
+        return true;
+    }
+
+    if (ESPHome::NativeAPIClient::isDisconnectRequest(frame.type))
+    {
+        m_IsConnected = false;
+        setLastError("ESPHome requested disconnect.");
+        return false;
+    }
 
     return true;
 }
@@ -170,7 +200,7 @@ const std::vector<ESPHome::EntityInfo> &ESPHomeInterface::getESPHomeEntities() c
 const ESPHome::EntityInfo *ESPHomeInterface::findESPHomeEntity(ESPHome::EntityType type,
         const std::string &objectIdOrName) const
 {
-    const auto it = std::find_if(m_Entities.begin(), m_Entities.end(), [type, &objectIdOrName](const auto &entity)
+    const auto it = std::find_if(m_Entities.begin(), m_Entities.end(), [type, &objectIdOrName](const auto & entity)
     {
         return entity.type == type && nameMatches(entity, objectIdOrName);
     });
@@ -180,7 +210,7 @@ const ESPHome::EntityInfo *ESPHomeInterface::findESPHomeEntity(ESPHome::EntityTy
 
 const ESPHome::EntityInfo *ESPHomeInterface::findESPHomeEntityByKey(uint32_t key) const
 {
-    const auto it = std::find_if(m_Entities.begin(), m_Entities.end(), [key](const auto &entity)
+    const auto it = std::find_if(m_Entities.begin(), m_Entities.end(), [key](const auto & entity)
     {
         return entity.key == key;
     });
@@ -193,7 +223,7 @@ bool ESPHomeInterface::isESPHomeConnected() const
     return m_IsConnected;
 }
 
-bool ESPHomeInterface::isESPHomeEncryptionSupported() const
+bool ESPHomeInterface::isESPHomeEncryptionSupported()
 {
     return false;
 }

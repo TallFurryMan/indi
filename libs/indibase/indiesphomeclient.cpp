@@ -19,6 +19,7 @@
 
 #include "indiesphomeclient.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <limits>
@@ -40,8 +41,8 @@ enum MessageType : uint32_t
 {
     HELLO_REQUEST = 1,
     HELLO_RESPONSE = 2,
-    CONNECT_REQUEST = 3,
-    CONNECT_RESPONSE = 4,
+    AUTHENTICATION_REQUEST = 3,
+    AUTHENTICATION_RESPONSE = 4,
     DISCONNECT_REQUEST = 5,
     DISCONNECT_RESPONSE = 6,
     PING_REQUEST = 7,
@@ -189,7 +190,7 @@ bool parseFields(const std::vector<uint8_t> &payload, std::vector<ProtoField> &f
             }
 
             case WIRE_32BIT:
-                if (offset > payload.size() || payload.size() - offset < 4)
+                if (payload.size() < 4 || offset > payload.size() - 4)
                     return false;
 
                 field.fixed32Value = static_cast<uint32_t>(payload[offset]) |
@@ -211,13 +212,12 @@ bool parseFields(const std::vector<uint8_t> &payload, std::vector<ProtoField> &f
 
 std::string fieldString(const std::vector<ProtoField> &fields, uint32_t number)
 {
-    for (const auto &field : fields)
+    const auto field = std::find_if(fields.begin(), fields.end(), [number](const auto &oneField)
     {
-        if (field.number == number && field.wireType == WIRE_LENGTH_DELIMITED)
-            return field.bytesValue;
-    }
+        return oneField.number == number && oneField.wireType == WIRE_LENGTH_DELIMITED;
+    });
 
-    return {};
+    return field == fields.end() ? std::string() : field->bytesValue;
 }
 
 uint32_t fieldUInt32(const std::vector<ProtoField> &fields, uint32_t number, uint32_t defaultValue = 0)
@@ -239,40 +239,38 @@ uint32_t fieldUInt32(const std::vector<ProtoField> &fields, uint32_t number, uin
 
 bool fieldBool(const std::vector<ProtoField> &fields, uint32_t number, bool defaultValue = false)
 {
-    for (const auto &field : fields)
+    const auto field = std::find_if(fields.begin(), fields.end(), [number](const auto &oneField)
     {
-        if (field.number == number && field.wireType == WIRE_VARINT)
-            return field.varintValue != 0;
-    }
+        return oneField.number == number && oneField.wireType == WIRE_VARINT;
+    });
 
-    return defaultValue;
+    return field == fields.end() ? defaultValue : field->varintValue != 0;
 }
 
 int32_t fieldInt32(const std::vector<ProtoField> &fields, uint32_t number, int32_t defaultValue = 0)
 {
-    for (const auto &field : fields)
+    const auto field = std::find_if(fields.begin(), fields.end(), [number](const auto &oneField)
     {
-        if (field.number == number && field.wireType == WIRE_VARINT)
-            return static_cast<int32_t>(field.varintValue);
-    }
+        return oneField.number == number && oneField.wireType == WIRE_VARINT;
+    });
 
-    return defaultValue;
+    return field == fields.end() ? defaultValue : static_cast<int32_t>(field->varintValue);
 }
 
 float fieldFloat(const std::vector<ProtoField> &fields, uint32_t number, float defaultValue = 0)
 {
-    for (const auto &field : fields)
+    const auto field = std::find_if(fields.begin(), fields.end(), [number](const auto &oneField)
     {
-        if (field.number == number && field.wireType == WIRE_32BIT)
-        {
-            float value = 0;
-            static_assert(sizeof(value) == sizeof(field.fixed32Value), "float must be 32-bit");
-            std::memcpy(&value, &field.fixed32Value, sizeof(value));
-            return value;
-        }
-    }
+        return oneField.number == number && oneField.wireType == WIRE_32BIT;
+    });
 
-    return defaultValue;
+    if (field == fields.end())
+        return defaultValue;
+
+    float value = 0;
+    static_assert(sizeof(value) == sizeof(field->fixed32Value), "float must be 32-bit");
+    std::memcpy(&value, &field->fixed32Value, sizeof(value));
+    return value;
 }
 
 bool parseHelloResponse(const std::vector<uint8_t> &payload, INDI::ESPHome::HelloResponse &response)
@@ -288,7 +286,7 @@ bool parseHelloResponse(const std::vector<uint8_t> &payload, INDI::ESPHome::Hell
     return true;
 }
 
-bool parseConnectResponse(const std::vector<uint8_t> &payload, INDI::ESPHome::ConnectResponse &response)
+bool parseAuthenticationResponse(const std::vector<uint8_t> &payload, INDI::ESPHome::AuthenticationResponse &response)
 {
     std::vector<ProtoField> fields;
     if (!parseFields(payload, fields))
@@ -312,9 +310,9 @@ bool parseDeviceInfo(const std::vector<uint8_t> &payload, INDI::ESPHome::DeviceI
     info.model = fieldString(fields, 6);
     info.hasDeepSleep = fieldBool(fields, 7);
     info.webserverPort = fieldUInt32(fields, 10);
-    info.manufacturer = fieldString(fields, 13);
-    info.friendlyName = fieldString(fields, 14);
-    info.suggestedArea = fieldString(fields, 15);
+    info.manufacturer = fieldString(fields, 12);
+    info.friendlyName = fieldString(fields, 13);
+    info.suggestedArea = fieldString(fields, 16);
     return true;
 }
 
@@ -327,7 +325,7 @@ std::vector<uint8_t> buildHelloRequest(const std::string &clientInfo)
     return payload;
 }
 
-std::vector<uint8_t> buildConnectRequest(const std::string &password)
+std::vector<uint8_t> buildAuthenticationRequest(const std::string &password)
 {
     std::vector<uint8_t> payload;
     if (!password.empty())
@@ -376,16 +374,16 @@ bool NativeAPIClient::sendHello(const std::string &clientInfo, HelloResponse &re
     return parseHelloResponse(frame.payload, response);
 }
 
-bool NativeAPIClient::connect(const std::string &password, ConnectResponse &response)
+bool NativeAPIClient::authenticate(const std::string &password, AuthenticationResponse &response)
 {
-    if (!writeFrame(CONNECT_REQUEST, buildConnectRequest(password)))
+    if (!writeFrame(AUTHENTICATION_REQUEST, buildAuthenticationRequest(password)))
         return false;
 
     Frame frame;
-    if (!readFrame(frame) || frame.type != CONNECT_RESPONSE)
+    if (!readFrame(frame) || frame.type != AUTHENTICATION_RESPONSE)
         return false;
 
-    return parseConnectResponse(frame.payload, response);
+    return parseAuthenticationResponse(frame.payload, response);
 }
 
 bool NativeAPIClient::requestDeviceInfo(DeviceInfo &info)
@@ -430,6 +428,11 @@ bool NativeAPIClient::subscribeStates()
 bool NativeAPIClient::ping()
 {
     return writeFrame(PING_REQUEST, {});
+}
+
+bool NativeAPIClient::sendPingResponse()
+{
+    return writeFrame(PING_RESPONSE, {});
 }
 
 bool NativeAPIClient::commandSwitch(uint32_t key, bool state)
@@ -490,10 +493,10 @@ const char *NativeAPIClient::messageTypeName(uint32_t type)
             return "HelloRequest";
         case HELLO_RESPONSE:
             return "HelloResponse";
-        case CONNECT_REQUEST:
-            return "ConnectRequest";
-        case CONNECT_RESPONSE:
-            return "ConnectResponse";
+        case AUTHENTICATION_REQUEST:
+            return "AuthenticationRequest";
+        case AUTHENTICATION_RESPONSE:
+            return "AuthenticationResponse";
         case DISCONNECT_REQUEST:
             return "DisconnectRequest";
         case DISCONNECT_RESPONSE:
@@ -552,6 +555,16 @@ const char *NativeAPIClient::entityTypeName(EntityType type)
     }
 }
 
+bool NativeAPIClient::isPingRequest(uint32_t type)
+{
+    return type == PING_REQUEST;
+}
+
+bool NativeAPIClient::isDisconnectRequest(uint32_t type)
+{
+    return type == DISCONNECT_REQUEST;
+}
+
 bool NativeAPIClient::parseEntity(uint32_t messageType, const std::vector<uint8_t> &payload, EntityInfo &entity)
 {
     std::vector<ProtoField> fields;
@@ -568,7 +581,7 @@ bool NativeAPIClient::parseEntity(uint32_t messageType, const std::vector<uint8_
             entity.uniqueId = fieldString(fields, 4);
             entity.deviceClass = fieldString(fields, 5);
             entity.disabledByDefault = fieldBool(fields, 7);
-            entity.icon = fieldString(fields, 9);
+            entity.icon = fieldString(fields, 8);
             break;
 
         case LIST_ENTITIES_SENSOR_RESPONSE:
@@ -582,7 +595,7 @@ bool NativeAPIClient::parseEntity(uint32_t messageType, const std::vector<uint8_
             entity.accuracyDecimals = fieldInt32(fields, 7);
             entity.forceUpdate = fieldBool(fields, 8);
             entity.deviceClass = fieldString(fields, 9);
-            entity.disabledByDefault = fieldBool(fields, 11);
+            entity.disabledByDefault = fieldBool(fields, 12);
             break;
 
         case LIST_ENTITIES_SWITCH_RESPONSE:
@@ -592,8 +605,8 @@ bool NativeAPIClient::parseEntity(uint32_t messageType, const std::vector<uint8_
             entity.name = fieldString(fields, 3);
             entity.uniqueId = fieldString(fields, 4);
             entity.icon = fieldString(fields, 5);
-            entity.disabledByDefault = fieldBool(fields, 6);
-            entity.deviceClass = fieldString(fields, 8);
+            entity.disabledByDefault = fieldBool(fields, 7);
+            entity.deviceClass = fieldString(fields, 9);
             break;
 
         case LIST_ENTITIES_TEXT_SENSOR_RESPONSE:

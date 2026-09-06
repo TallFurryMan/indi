@@ -51,7 +51,7 @@ struct HelloResponse
     std::string name;
 };
 
-struct ConnectResponse
+struct AuthenticationResponse
 {
     bool invalidPassword {false};
 };
@@ -106,11 +106,12 @@ class NativeAPIClient
         int socket() const;
 
         bool sendHello(const std::string &clientInfo, HelloResponse &response);
-        bool connect(const std::string &password, ConnectResponse &response);
+        bool authenticate(const std::string &password, AuthenticationResponse &response);
         bool requestDeviceInfo(DeviceInfo &info);
         bool listEntities(std::vector<EntityInfo> &entities);
         bool subscribeStates();
         bool ping();
+        bool sendPingResponse();
         bool commandSwitch(uint32_t key, bool state);
 
         bool readFrame(Frame &frame);
@@ -119,6 +120,8 @@ class NativeAPIClient
 
         static const char *messageTypeName(uint32_t type);
         static const char *entityTypeName(EntityType type);
+        static bool isPingRequest(uint32_t type);
+        static bool isDisconnectRequest(uint32_t type);
 
         static bool parseEntity(uint32_t messageType, const std::vector<uint8_t> &payload, EntityInfo &entity);
         static bool parseState(uint32_t messageType, const std::vector<uint8_t> &payload, State &state);
