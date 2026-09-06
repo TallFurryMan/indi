@@ -39,6 +39,8 @@ class ESPHomeInterface
         bool disconnectESPHome();
         bool subscribeESPHomeStates();
         bool processESPHomeState();
+        bool commandESPHomeButton(uint32_t key);
+        bool commandESPHomeCover(uint32_t key, ESPHome::CoverCommand command);
         bool commandESPHomeSwitch(uint32_t key, bool enabled);
 
         const ESPHome::DeviceInfo &getESPHomeDeviceInfo() const;

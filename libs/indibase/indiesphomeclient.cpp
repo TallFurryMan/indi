@@ -51,16 +51,28 @@ enum MessageType : uint32_t
     DEVICE_INFO_RESPONSE = 10,
     LIST_ENTITIES_REQUEST = 11,
     LIST_ENTITIES_BINARY_SENSOR_RESPONSE = 12,
+    LIST_ENTITIES_COVER_RESPONSE = 13,
     LIST_ENTITIES_SENSOR_RESPONSE = 16,
     LIST_ENTITIES_SWITCH_RESPONSE = 17,
     LIST_ENTITIES_TEXT_SENSOR_RESPONSE = 18,
     LIST_ENTITIES_DONE_RESPONSE = 19,
     SUBSCRIBE_STATES_REQUEST = 20,
     BINARY_SENSOR_STATE_RESPONSE = 21,
+    COVER_STATE_RESPONSE = 22,
     SENSOR_STATE_RESPONSE = 25,
     SWITCH_STATE_RESPONSE = 26,
     TEXT_SENSOR_STATE_RESPONSE = 27,
-    SWITCH_COMMAND_REQUEST = 33
+    COVER_COMMAND_REQUEST = 30,
+    SWITCH_COMMAND_REQUEST = 33,
+    LIST_ENTITIES_BUTTON_RESPONSE = 61,
+    BUTTON_COMMAND_REQUEST = 62
+};
+
+enum LegacyCoverCommand : uint32_t
+{
+    LEGACY_COVER_OPEN = 0,
+    LEGACY_COVER_CLOSE = 1,
+    LEGACY_COVER_STOP = 2
 };
 
 struct ProtoField
@@ -114,6 +126,14 @@ void appendFixed32(std::vector<uint8_t> &buffer, uint32_t fieldNumber, uint32_t 
     buffer.push_back(static_cast<uint8_t>((value >> 8) & 0xff));
     buffer.push_back(static_cast<uint8_t>((value >> 16) & 0xff));
     buffer.push_back(static_cast<uint8_t>((value >> 24) & 0xff));
+}
+
+void appendFloat(std::vector<uint8_t> &buffer, uint32_t fieldNumber, float value)
+{
+    uint32_t fixedValue = 0;
+    static_assert(sizeof(value) == sizeof(fixedValue), "float must be 32-bit");
+    std::memcpy(&fixedValue, &value, sizeof(fixedValue));
+    appendFixed32(buffer, fieldNumber, fixedValue);
 }
 
 bool readVarUInt(const std::vector<uint8_t> &buffer, size_t &offset, uint64_t &value)
@@ -341,6 +361,44 @@ std::vector<uint8_t> buildSwitchCommandRequest(uint32_t key, bool state)
     return payload;
 }
 
+std::vector<uint8_t> buildButtonCommandRequest(uint32_t key)
+{
+    std::vector<uint8_t> payload;
+    appendFixed32(payload, 1, key);
+    return payload;
+}
+
+std::vector<uint8_t> buildCoverCommandRequest(uint32_t key, INDI::ESPHome::CoverCommand command)
+{
+    std::vector<uint8_t> payload;
+    appendFixed32(payload, 1, key);
+
+    switch (command)
+    {
+        case INDI::ESPHome::CoverCommand::Open:
+            appendBool(payload, 2, true);
+            appendUInt32(payload, 3, LEGACY_COVER_OPEN);
+            appendBool(payload, 4, true);
+            appendFloat(payload, 5, 1.0F);
+            break;
+
+        case INDI::ESPHome::CoverCommand::Close:
+            appendBool(payload, 2, true);
+            appendUInt32(payload, 3, LEGACY_COVER_CLOSE);
+            appendBool(payload, 4, true);
+            appendFloat(payload, 5, 0.0F);
+            break;
+
+        case INDI::ESPHome::CoverCommand::Stop:
+            appendBool(payload, 2, true);
+            appendUInt32(payload, 3, LEGACY_COVER_STOP);
+            appendBool(payload, 8, true);
+            break;
+    }
+
+    return payload;
+}
+
 } // namespace
 
 namespace INDI
@@ -435,6 +493,16 @@ bool NativeAPIClient::sendPingResponse()
     return writeFrame(PING_RESPONSE, {});
 }
 
+bool NativeAPIClient::commandButton(uint32_t key)
+{
+    return writeFrame(BUTTON_COMMAND_REQUEST, buildButtonCommandRequest(key));
+}
+
+bool NativeAPIClient::commandCover(uint32_t key, CoverCommand command)
+{
+    return writeFrame(COVER_COMMAND_REQUEST, buildCoverCommandRequest(key, command));
+}
+
 bool NativeAPIClient::commandSwitch(uint32_t key, bool state)
 {
     return writeFrame(SWITCH_COMMAND_REQUEST, buildSwitchCommandRequest(key, state));
@@ -513,6 +581,8 @@ const char *NativeAPIClient::messageTypeName(uint32_t type)
             return "ListEntitiesRequest";
         case LIST_ENTITIES_BINARY_SENSOR_RESPONSE:
             return "ListEntitiesBinarySensorResponse";
+        case LIST_ENTITIES_COVER_RESPONSE:
+            return "ListEntitiesCoverResponse";
         case LIST_ENTITIES_SENSOR_RESPONSE:
             return "ListEntitiesSensorResponse";
         case LIST_ENTITIES_SWITCH_RESPONSE:
@@ -525,14 +595,22 @@ const char *NativeAPIClient::messageTypeName(uint32_t type)
             return "SubscribeStatesRequest";
         case BINARY_SENSOR_STATE_RESPONSE:
             return "BinarySensorStateResponse";
+        case COVER_STATE_RESPONSE:
+            return "CoverStateResponse";
         case SENSOR_STATE_RESPONSE:
             return "SensorStateResponse";
         case SWITCH_STATE_RESPONSE:
             return "SwitchStateResponse";
         case TEXT_SENSOR_STATE_RESPONSE:
             return "TextSensorStateResponse";
+        case COVER_COMMAND_REQUEST:
+            return "CoverCommandRequest";
         case SWITCH_COMMAND_REQUEST:
             return "SwitchCommandRequest";
+        case LIST_ENTITIES_BUTTON_RESPONSE:
+            return "ListEntitiesButtonResponse";
+        case BUTTON_COMMAND_REQUEST:
+            return "ButtonCommandRequest";
         default:
             return "Unknown";
     }
@@ -544,6 +622,10 @@ const char *NativeAPIClient::entityTypeName(EntityType type)
     {
         case EntityType::BinarySensor:
             return "binary_sensor";
+        case EntityType::Button:
+            return "button";
+        case EntityType::Cover:
+            return "cover";
         case EntityType::Sensor:
             return "sensor";
         case EntityType::Switch:
@@ -584,6 +666,17 @@ bool NativeAPIClient::parseEntity(uint32_t messageType, const std::vector<uint8_
             entity.icon = fieldString(fields, 8);
             break;
 
+        case LIST_ENTITIES_COVER_RESPONSE:
+            entity.type = EntityType::Cover;
+            entity.objectId = fieldString(fields, 1);
+            entity.key = fieldUInt32(fields, 2);
+            entity.name = fieldString(fields, 3);
+            entity.uniqueId = fieldString(fields, 4);
+            entity.deviceClass = fieldString(fields, 8);
+            entity.disabledByDefault = fieldBool(fields, 9);
+            entity.icon = fieldString(fields, 10);
+            break;
+
         case LIST_ENTITIES_SENSOR_RESPONSE:
             entity.type = EntityType::Sensor;
             entity.objectId = fieldString(fields, 1);
@@ -620,6 +713,17 @@ bool NativeAPIClient::parseEntity(uint32_t messageType, const std::vector<uint8_
             entity.deviceClass = fieldString(fields, 8);
             break;
 
+        case LIST_ENTITIES_BUTTON_RESPONSE:
+            entity.type = EntityType::Button;
+            entity.objectId = fieldString(fields, 1);
+            entity.key = fieldUInt32(fields, 2);
+            entity.name = fieldString(fields, 3);
+            entity.uniqueId = fieldString(fields, 4);
+            entity.icon = fieldString(fields, 5);
+            entity.deviceClass = fieldString(fields, 6);
+            entity.disabledByDefault = fieldBool(fields, 8);
+            break;
+
         default:
             return false;
     }
@@ -640,6 +744,13 @@ bool NativeAPIClient::parseState(uint32_t messageType, const std::vector<uint8_t
             state.key = fieldUInt32(fields, 1);
             state.boolValue = fieldBool(fields, 2);
             state.missingState = fieldBool(fields, 3);
+            return state.key != 0;
+
+        case COVER_STATE_RESPONSE:
+            state.type = EntityType::Cover;
+            state.key = fieldUInt32(fields, 1);
+            state.position = fieldFloat(fields, 3);
+            state.operation = fieldInt32(fields, 5);
             return state.key != 0;
 
         case SENSOR_STATE_RESPONSE:

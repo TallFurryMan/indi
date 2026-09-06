@@ -187,6 +187,40 @@ bool ESPHomeInterface::commandESPHomeSwitch(uint32_t key, bool enabled)
     return true;
 }
 
+bool ESPHomeInterface::commandESPHomeButton(uint32_t key)
+{
+    if (!m_IsConnected)
+    {
+        setLastError("ESPHome is not connected.");
+        return false;
+    }
+
+    if (!m_Client.commandButton(key))
+    {
+        setLastError("ESPHome button command failed.");
+        return false;
+    }
+
+    return true;
+}
+
+bool ESPHomeInterface::commandESPHomeCover(uint32_t key, ESPHome::CoverCommand command)
+{
+    if (!m_IsConnected)
+    {
+        setLastError("ESPHome is not connected.");
+        return false;
+    }
+
+    if (!m_Client.commandCover(key, command))
+    {
+        setLastError("ESPHome cover command failed.");
+        return false;
+    }
+
+    return true;
+}
+
 const ESPHome::DeviceInfo &ESPHomeInterface::getESPHomeDeviceInfo() const
 {
     return m_DeviceInfo;

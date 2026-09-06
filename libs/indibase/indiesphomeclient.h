@@ -32,9 +32,18 @@ enum class EntityType
 {
     Unknown,
     BinarySensor,
+    Button,
+    Cover,
     Sensor,
     Switch,
     TextSensor
+};
+
+enum class CoverCommand
+{
+    Open,
+    Close,
+    Stop
 };
 
 struct Frame
@@ -92,6 +101,8 @@ struct State
     uint32_t key {0};
     bool boolValue {false};
     float floatValue {0};
+    float position {0};
+    int32_t operation {0};
     bool missingState {false};
     std::string textValue;
 };
@@ -112,6 +123,8 @@ class NativeAPIClient
         bool subscribeStates();
         bool ping();
         bool sendPingResponse();
+        bool commandButton(uint32_t key);
+        bool commandCover(uint32_t key, CoverCommand command);
         bool commandSwitch(uint32_t key, bool state);
 
         bool readFrame(Frame &frame);
