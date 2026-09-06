@@ -71,6 +71,7 @@ class LightBoxInterface;
 class OutputInterface;
 class InputInterface;
 class PowerInterface;
+class ESPHomeInterface;
 class CCD;
 class Spectrograph;
 class Detector;

@@ -166,6 +166,8 @@ list(APPEND ${PROJECT_NAME}_SOURCES
     indiinputinterface.cpp
     indioutputinterface.cpp
     indipowerinterface.cpp
+    indiesphomeclient.cpp
+    indiesphomeinterface.cpp
     indidome.cpp
     indigps.cpp
     indiimu.cpp        
@@ -214,6 +216,8 @@ list(APPEND ${PROJECT_NAME}_HEADERS
     indiinputinterface.h
     indioutputinterface.h
     indipowerinterface.h
+    indiesphomeclient.h
+    indiesphomeinterface.h
     timer/inditimer.h
     timer/indielapsedtimer.h
     thread/indisinglethreadpool.h
