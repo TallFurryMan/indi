@@ -1058,10 +1058,6 @@
             <driver name="Universal ROR">indi_universalror_dome</driver>
             <version>0.1</version>
         </device>
-        <device label="ESPHome Observatory" manufacturer="ESPHome">
-            <driver name="ESPHome Observatory">indi_esphome_observatory</driver>
-            <version>1.0</version>
-        </device>
         <device label="Alpaca Dome" manufacturer="Alpaca">
             <driver name="Alpaca Dome">indi_alpaca_dome</driver>
             <version>0.1</version>
