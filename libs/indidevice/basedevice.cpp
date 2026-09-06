@@ -979,7 +979,7 @@ const char *BaseDevice::getDriverVersion() const
     return driverVersion ? driverVersion->getText() : nullptr;
 }
 
-uint16_t BaseDevice::getDriverInterface() const
+uint32_t BaseDevice::getDriverInterface() const
 {
     auto driverInterface = getText("DRIVER_INFO").findWidgetByName("DRIVER_INTERFACE");
     return driverInterface ? atoi(driverInterface->getText()) : 0;

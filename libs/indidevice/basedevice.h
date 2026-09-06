@@ -256,7 +256,7 @@ class BaseDevice
          *       cout << "We received a camera!" << endl;
          *  @endcode
          */
-        uint16_t getDriverInterface() const;
+        uint32_t getDriverInterface() const;
 
     public:
         /** @brief Build driver properties from a skeleton file.
