@@ -23,9 +23,14 @@
 #include <libnova/julian_day.h>
 #include <libastro.h>
 
+#ifdef HAVE_XISF
+#include <libxisf.h>
+#endif
+
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <strings.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <dirent.h>
@@ -1157,17 +1162,44 @@ bool CCDSim::watchDirectory()
     auto directory = DirectoryTP[0].getText();
     if (directory[std::string(directory).length() - 1] != '/')
         d_dir += "/";
+
+    // Accept FITS (.fit/.fits) and, when built with LibXISF support, XISF (.xisf) files.
+    static const std::vector<std::string> supportedExtensions =
+    {
+        ".fits", ".fit",
+#ifdef HAVE_XISF
+        ".xisf",
+#endif
+    };
+
+    auto hasSupportedExtension = [](const std::string &name)
+    {
+        for (const auto &extension : supportedExtensions)
+        {
+            if (name.size() < extension.size())
+                continue;
+            if (strcasecmp(name.c_str() + name.size() - extension.size(), extension.c_str()) == 0)
+                return true;
+        }
+        return false;
+    };
+
     while ((dp = readdir(dirp)) != NULL)
     {
-        // For now, just FITS.
-        if (strstr(dp->d_name, ".fits"))
+        if (hasSupportedExtension(dp->d_name))
             m_AllFiles.push_back(d_dir + dp->d_name);
     }
     closedir(dirp);
 
     if (m_AllFiles.empty())
     {
-        LOGF_ERROR("No FITS files found in directory %s", directory);
+        LOGF_ERROR("No supported image files (.fit, .fits%s) found in directory %s",
+#ifdef HAVE_XISF
+                    ", .xisf"
+#else
+                    ""
+#endif
+                    , directory);
         return false;
     }
     else
@@ -1799,6 +1831,17 @@ bool CCDSim::loadNextImage()
         m_RemainingFiles = m_AllFiles;
     const std::string filename = m_RemainingFiles[0];
     m_RemainingFiles.pop_front();
+
+#ifdef HAVE_XISF
+    if (filename.size() >= 5 && strcasecmp(filename.c_str() + filename.size() - 5, ".xisf") == 0)
+        return loadNextXISFImage(filename);
+#endif
+
+    return loadNextFITSImage(filename);
+}
+
+bool CCDSim::loadNextFITSImage(const std::string &filename)
+{
     char comment[512] = {0}, bayer_pattern[16] = {0};
     int status = 0, anynull = 0;
     double pixel_size = 5.2;
@@ -1814,7 +1857,14 @@ bool CCDSim::loadNextImage()
         return false;
     }
 
-    fits_get_img_param(fptr, 3, &bitpix, &ndim, naxes, &status);
+    if (fits_get_img_param(fptr, 3, &bitpix, &ndim, naxes, &status))
+    {
+        char error_status[512] = {0};
+        fits_get_errstatus(status, error_status);
+        LOGF_WARN("Error reading image parameters from %s due to error %s", filename.c_str(), error_status);
+        fits_close_file(fptr, &status);
+        return false;
+    }
 
     if (ndim < 3)
         naxes[2] = 1;
@@ -1830,18 +1880,26 @@ bool CCDSim::loadNextImage()
     {
         char error_status[512] = {0};
         fits_get_errstatus(status, error_status);
-        LOGF_WARN("Error reading file %s due to error %s", filename.c_str(), error_status);
+        LOGF_WARN("Error reading pixel data from %s due to error %s", filename.c_str(), error_status);
+        fits_close_file(fptr, &status);
         return false;
     }
 
+    // Pixel size is informational only. Different capture applications use different keywords
+    // for it (e.g. INDI writes PIXSIZE1 while others like N.I.N.A/SharpCap write XPIXSZ), and some
+    // omit it entirely, so fall back gracefully instead of rejecting the whole image over it.
+    status = 0;
     if (fits_read_key_dbl(fptr, "PIXSIZE1", &pixel_size, comment, &status))
     {
-        char error_status[512] = {0};
-        fits_get_errstatus(status, error_status);
-        LOGF_WARN("Error reading file %s due to error %s", filename.c_str(), error_status);
-        return false;
+        status = 0;
+        if (fits_read_key_dbl(fptr, "XPIXSZ", &pixel_size, comment, &status))
+        {
+            LOGF_DEBUG("No PIXSIZE1 or XPIXSZ keyword found in %s, defaulting pixel size to %.2f microns",
+                        filename.c_str(), pixel_size);
+        }
     }
 
+    status = 0;
     if (fits_read_key_str(fptr, "BAYERPAT", bayer_pattern, comment, &status))
     {
         char error_status[512] = {0};
@@ -1863,9 +1921,135 @@ bool CCDSim::loadNextImage()
         SetCCDCapability(GetCCDCapability() & ~CCD_HAS_BAYER);
     }
 
+    status = 0;
     fits_close_file(fptr, &status);
     return true;
 }
+
+#ifdef HAVE_XISF
+bool CCDSim::loadNextXISFImage(const std::string &filename)
+{
+    try
+    {
+        LibXISF::XISFReader reader;
+        reader.open(filename);
+
+        if (reader.imagesCount() < 1)
+        {
+            LOGF_WARN("No images found in XISF file %s", filename.c_str());
+            return false;
+        }
+
+        // Work on a local copy so we can normalize pixel storage before copying it out.
+        LibXISF::Image image = reader.getImage(0);
+
+        const auto sampleFormat = image.sampleFormat();
+        const bool isFloat = (sampleFormat == LibXISF::Image::Float32 || sampleFormat == LibXISF::Image::Float64);
+        int bitpix = 0;
+        switch (sampleFormat)
+        {
+            case LibXISF::Image::UInt8:
+                bitpix = 8;
+                break;
+            case LibXISF::Image::UInt16:
+                bitpix = 16;
+                break;
+            case LibXISF::Image::Float32:
+            case LibXISF::Image::Float64:
+                // Processed/master XISF files (e.g. exported from PixInsight) are commonly stored as
+                // normalized [0,1] floating point samples per the XISF spec. Scale them to 16-bit so
+                // they can flow through the same integer pipeline as camera-native captures.
+                bitpix = 16;
+                break;
+            default:
+                LOGF_WARN("Unsupported XISF sample format '%s' in %s. Only 8/16-bit integer and 32/64-bit "
+                          "normalized float samples are supported.",
+                           LibXISF::Image::sampleFormatString(sampleFormat).c_str(), filename.c_str());
+                return false;
+        }
+
+        int channels = static_cast<int>(image.channelCount());
+        PrimaryCCD.setNAxis(channels >= 3 ? 3 : 2);
+
+        // The CCD frame buffer expects channel-planar data (as FITS image cubes store it),
+        // matching how this driver (and INDI in general) writes XISF images.
+        if (image.pixelStorage() != LibXISF::Image::Planar)
+            image.convertPixelStorageTo(LibXISF::Image::Planar);
+
+        const size_t elementCount = image.width() * image.height() * channels;
+        if (isFloat)
+        {
+            PrimaryCCD.setFrameBufferSize(elementCount * 2);
+            auto * dest = reinterpret_cast<uint16_t *>(PrimaryCCD.getFrameBuffer());
+            auto scaleClamp = [](double value) -> uint16_t
+            {
+                if (value <= 0.0)
+                    return 0;
+                if (value >= 1.0)
+                    return 65535;
+                return static_cast<uint16_t>(std::lround(value * 65535.0));
+            };
+
+            if (sampleFormat == LibXISF::Image::Float32)
+            {
+                const float * src = image.imageData<float>();
+                for (size_t i = 0; i < elementCount; i++)
+                    dest[i] = scaleClamp(src[i]);
+            }
+            else
+            {
+                const double * src = image.imageData<double>();
+                for (size_t i = 0; i < elementCount; i++)
+                    dest[i] = scaleClamp(src[i]);
+            }
+        }
+        else
+        {
+            PrimaryCCD.setFrameBufferSize(image.imageDataSize());
+            memcpy(PrimaryCCD.getFrameBuffer(), image.imageData(), image.imageDataSize());
+        }
+
+        // Pixel size is informational only; fall back to a default if not present, same as the FITS path.
+        double pixel_size = 5.2;
+        bool foundPixelSize = false;
+        for (const auto &keyword : image.fitsKeywords())
+        {
+            if (keyword.name == "PIXSIZE1" || keyword.name == "XPIXSZ")
+            {
+                pixel_size = std::stod(keyword.value);
+                foundPixelSize = true;
+                break;
+            }
+        }
+        if (!foundPixelSize)
+            LOGF_DEBUG("No PIXSIZE1 or XPIXSZ keyword found in %s, defaulting pixel size to %.2f microns",
+                        filename.c_str(), pixel_size);
+
+        SetCCDParams(image.width(), image.height(), bitpix, pixel_size, pixel_size);
+
+        // Check if MONO or Bayer
+        const auto cfa = image.colorFilterArray();
+        if (channels == 1 && cfa.pattern.size() == 4)
+        {
+            SetCCDCapability(GetCCDCapability() | CCD_HAS_BAYER);
+            BayerTP[CFA_OFFSET_X].setText("0");
+            BayerTP[CFA_OFFSET_Y].setText("0");
+            BayerTP[CFA_TYPE].setText(cfa.pattern.c_str());
+        }
+        else
+        {
+            SetCCDCapability(GetCCDCapability() & ~CCD_HAS_BAYER);
+        }
+    }
+    catch (LibXISF::Error &error)
+    {
+        LOGF_WARN("Error reading XISF file %s due to error: %s", filename.c_str(), error.what());
+        return false;
+    }
+
+    return true;
+}
+#endif
 
 bool CCDSim::SetCaptureFormat(uint8_t index)
 {
