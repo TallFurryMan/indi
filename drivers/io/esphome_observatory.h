@@ -14,8 +14,8 @@
 
 #pragma once
 
-#include "defaultdevice.h"
 #include "indiesphomeinterface.h"
+#include "indidome.h"
 #include "indiinputinterface.h"
 #include "indioutputinterface.h"
 #include "indiweatherinterface.h"
@@ -24,12 +24,7 @@
 #include <string>
 #include <vector>
 
-namespace Connection
-{
-class TCP;
-}
-
-class ESPHomeObservatory : public INDI::DefaultDevice,
+class ESPHomeObservatory : public INDI::Dome,
     public INDI::ESPHomeInterface,
     public INDI::InputInterface,
     public INDI::OutputInterface,
@@ -52,6 +47,10 @@ class ESPHomeObservatory : public INDI::DefaultDevice,
         virtual void TimerHit() override;
         virtual bool saveConfigItems(FILE *fp) override;
 
+        virtual IPState Move(DomeDirection dir, DomeMotionCommand operation) override;
+        virtual IPState Park() override;
+        virtual IPState UnPark() override;
+
         virtual bool UpdateDigitalInputs() override;
         virtual bool UpdateAnalogInputs() override;
         virtual bool UpdateDigitalOutputs() override;
@@ -69,10 +68,34 @@ class ESPHomeObservatory : public INDI::DefaultDevice,
             std::string parameter;
         };
 
-        bool Handshake();
+        enum DomeEndpoint
+        {
+            DOME_COVER,
+            DOME_PARK_COMMAND,
+            DOME_UNPARK_COMMAND,
+            DOME_PARKED_STATE,
+            DOME_UNPARKED_STATE,
+            DOME_ENDPOINT_COUNT
+        };
+
+        struct CommandEndpoint
+        {
+            INDI::ESPHome::EntityType type {INDI::ESPHome::EntityType::Unknown};
+            uint32_t key {0};
+        };
+
+        virtual bool Handshake() override;
         void resetBindings();
+        void resetDomeEndpoints();
+        bool resolveDomeEndpoints();
         void updateDeviceInfoProperty();
         bool hasPendingESPHomeData() const;
+        IPState commandDome(bool park);
+        bool commandDomeEndpoint(const CommandEndpoint &endpoint);
+        bool hasDomeStateFeedback(bool park) const;
+        void syncDomeState(bool parked);
+        const INDI::ESPHome::EntityInfo *findDomeEndpoint(const std::string &endpoint,
+                const std::vector<INDI::ESPHome::EntityType> &allowedTypes) const;
         static std::string entityLabel(const INDI::ESPHome::EntityInfo &entity);
         static std::string weatherParameterForEntity(const INDI::ESPHome::EntityInfo &entity);
         void bindOutputEntity(const INDI::ESPHome::EntityInfo &entity);
@@ -82,16 +105,20 @@ class ESPHomeObservatory : public INDI::DefaultDevice,
         int inputIndexForKey(uint32_t key) const;
         const WeatherBinding *weatherBindingForKey(uint32_t key) const;
 
-        Connection::TCP *tcpConnection {nullptr};
         INDI::PropertyText LegacyPasswordTP {1};
         INDI::PropertyText DeviceInfoTP {6};
+        INDI::PropertyText DomeEndpointTP {DOME_ENDPOINT_COUNT};
 
         static constexpr uint8_t MAX_DIGITAL_INPUTS {16};
         static constexpr uint8_t MAX_DIGITAL_OUTPUTS {16};
         static constexpr uint16_t DEFAULT_ESPHOME_PORT {6053};
         static constexpr uint8_t MAX_FRAMES_PER_TIMER {32};
 
-        int PortFD {-1};
+        uint32_t m_DomeCoverKey {0};
+        CommandEndpoint m_ParkCommand;
+        CommandEndpoint m_UnparkCommand;
+        uint32_t m_ParkedStateKey {0};
+        uint32_t m_UnparkedStateKey {0};
         std::array<uint32_t, MAX_DIGITAL_INPUTS> m_InputKeys {};
         std::array<uint32_t, MAX_DIGITAL_OUTPUTS> m_OutputKeys {};
         std::vector<WeatherBinding> m_WeatherBindings;

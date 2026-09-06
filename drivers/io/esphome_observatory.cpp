@@ -40,6 +40,36 @@ bool contains(const std::string &haystack, const std::string &needle)
 {
     return haystack.find(needle) != std::string::npos;
 }
+
+std::string trimASCII(const std::string &value)
+{
+    const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char oneChar)
+    {
+        return std::isspace(oneChar) != 0;
+    });
+
+    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char oneChar)
+    {
+        return std::isspace(oneChar) != 0;
+    }).base();
+
+    return first >= last ? std::string() : std::string(first, last);
+}
+
+INDI::ESPHome::EntityType endpointTypeFromPrefix(const std::string &prefix)
+{
+    const auto type = lowerASCII(prefix);
+    if (type == "binary_sensor")
+        return INDI::ESPHome::EntityType::BinarySensor;
+    if (type == "button")
+        return INDI::ESPHome::EntityType::Button;
+    if (type == "cover")
+        return INDI::ESPHome::EntityType::Cover;
+    if (type == "switch")
+        return INDI::ESPHome::EntityType::Switch;
+
+    return INDI::ESPHome::EntityType::Unknown;
+}
 }
 
 ESPHomeObservatory::ESPHomeObservatory()
@@ -48,6 +78,8 @@ ESPHomeObservatory::ESPHomeObservatory()
       INDI::OutputInterface(this),
       INDI::WeatherInterface(this)
 {
+    setDomeConnection(INDI::Dome::CONNECTION_NONE);
+    SetDomeCapability(DOME_CAN_PARK);
     setVersion(1, 0);
 }
 
@@ -58,9 +90,10 @@ const char *ESPHomeObservatory::getDefaultName()
 
 bool ESPHomeObservatory::initProperties()
 {
-    INDI::DefaultDevice::initProperties();
+    INDI::Dome::initProperties();
+    SetParkDataType(PARK_NONE);
 
-    setDriverInterface(AUX_INTERFACE | INPUT_INTERFACE | OUTPUT_INTERFACE | WEATHER_INTERFACE);
+    setDriverInterface(getDriverInterface() | AUX_INTERFACE | INPUT_INTERFACE | OUTPUT_INTERFACE | WEATHER_INTERFACE);
 
     INDI::InputInterface::initProperties(MAIN_CONTROL_TAB, MAX_DIGITAL_INPUTS, 0, "Binary Sensor");
     INDI::OutputInterface::initProperties(MAIN_CONTROL_TAB, MAX_DIGITAL_OUTPUTS, "Switch");
@@ -89,6 +122,14 @@ bool ESPHomeObservatory::initProperties()
     DeviceInfoTP[5].fill("ENTITIES", "Entities", "0");
     DeviceInfoTP.fill(getDeviceName(), "ESPHOME_DEVICE_INFO", "ESPHome", INFO_TAB, IP_RO, 60, IPS_IDLE);
 
+    DomeEndpointTP[DOME_COVER].fill("COVER", "Cover", "");
+    DomeEndpointTP[DOME_PARK_COMMAND].fill("PARK_COMMAND", "Park/Close", "");
+    DomeEndpointTP[DOME_UNPARK_COMMAND].fill("UNPARK_COMMAND", "Unpark/Open", "");
+    DomeEndpointTP[DOME_PARKED_STATE].fill("PARKED_STATE", "Parked Sensor", "");
+    DomeEndpointTP[DOME_UNPARKED_STATE].fill("UNPARKED_STATE", "Unparked Sensor", "");
+    DomeEndpointTP.fill(getDeviceName(), "ESPHOME_DOME_ENDPOINTS", "Dome Endpoints", OPTIONS_TAB, IP_RW, 60, IPS_IDLE);
+    DomeEndpointTP.load();
+
     tcpConnection = new Connection::TCP(this);
     tcpConnection->setDefaultHost("esphome.local");
     tcpConnection->setDefaultPort(DEFAULT_ESPHOME_PORT);
@@ -107,19 +148,21 @@ bool ESPHomeObservatory::initProperties()
 
 void ESPHomeObservatory::ISGetProperties(const char *dev)
 {
-    INDI::DefaultDevice::ISGetProperties(dev);
+    INDI::Dome::ISGetProperties(dev);
     defineProperty(LegacyPasswordTP);
+    defineProperty(DomeEndpointTP);
 }
 
 bool ESPHomeObservatory::updateProperties()
 {
-    INDI::DefaultDevice::updateProperties();
+    INDI::Dome::updateProperties();
     INDI::InputInterface::updateProperties();
     INDI::OutputInterface::updateProperties();
     INDI::WeatherInterface::updateProperties();
 
     if (isConnected())
     {
+        InitPark();
         updateDeviceInfoProperty();
         defineProperty(DeviceInfoTP);
         SetTimer(getCurrentPollingPeriod());
@@ -142,6 +185,7 @@ bool ESPHomeObservatory::Disconnect()
 bool ESPHomeObservatory::Handshake()
 {
     resetBindings();
+    resetDomeEndpoints();
     PortFD = tcpConnection->getPortFD();
 
     if (!connectESPHome(PortFD, "INDI ESPHome Observatory", LegacyPasswordTP[0].getText()))
@@ -150,6 +194,7 @@ bool ESPHomeObservatory::Handshake()
     if (!subscribeESPHomeStates())
         return false;
 
+    resolveDomeEndpoints();
     updateDeviceInfoProperty();
     return true;
 }
@@ -180,6 +225,15 @@ bool ESPHomeObservatory::ISNewText(const char *dev, const char *name, char *text
             saveConfig(LegacyPasswordTP);
             return true;
         }
+
+        if (DomeEndpointTP.isNameMatch(name))
+        {
+            DomeEndpointTP.update(texts, names, n);
+            DomeEndpointTP.setState(isConnected() && !resolveDomeEndpoints() ? IPS_ALERT : IPS_OK);
+            DomeEndpointTP.apply();
+            saveConfig(DomeEndpointTP);
+            return true;
+        }
     }
 
     if (INDI::InputInterface::processText(dev, name, texts, names, n))
@@ -188,7 +242,7 @@ bool ESPHomeObservatory::ISNewText(const char *dev, const char *name, char *text
     if (INDI::OutputInterface::processText(dev, name, texts, names, n))
         return true;
 
-    return INDI::DefaultDevice::ISNewText(dev, name, texts, names, n);
+    return INDI::Dome::ISNewText(dev, name, texts, names, n);
 }
 
 bool ESPHomeObservatory::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
@@ -199,7 +253,7 @@ bool ESPHomeObservatory::ISNewSwitch(const char *dev, const char *name, ISState 
     if (INDI::WeatherInterface::processSwitch(dev, name, states, names, n))
         return true;
 
-    return INDI::DefaultDevice::ISNewSwitch(dev, name, states, names, n);
+    return INDI::Dome::ISNewSwitch(dev, name, states, names, n);
 }
 
 bool ESPHomeObservatory::ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n)
@@ -210,17 +264,41 @@ bool ESPHomeObservatory::ISNewNumber(const char *dev, const char *name, double v
     if (INDI::WeatherInterface::processNumber(dev, name, values, names, n))
         return true;
 
-    return INDI::DefaultDevice::ISNewNumber(dev, name, values, names, n);
+    return INDI::Dome::ISNewNumber(dev, name, values, names, n);
 }
 
 bool ESPHomeObservatory::saveConfigItems(FILE *fp)
 {
-    INDI::DefaultDevice::saveConfigItems(fp);
+    INDI::Dome::saveConfigItems(fp);
     INDI::InputInterface::saveConfigItems(fp);
     INDI::OutputInterface::saveConfigItems(fp);
     INDI::WeatherInterface::saveConfigItems(fp);
     LegacyPasswordTP.save(fp);
+    DomeEndpointTP.save(fp);
     return true;
+}
+
+IPState ESPHomeObservatory::Move(DomeDirection dir, DomeMotionCommand operation)
+{
+    if (operation == MOTION_STOP)
+    {
+        if (m_DomeCoverKey != 0 && commandESPHomeCover(m_DomeCoverKey, INDI::ESPHome::CoverCommand::Stop))
+            return IPS_OK;
+
+        return IPS_ALERT;
+    }
+
+    return dir == DOME_CCW ? Park() : UnPark();
+}
+
+IPState ESPHomeObservatory::Park()
+{
+    return commandDome(true);
+}
+
+IPState ESPHomeObservatory::UnPark()
+{
+    return commandDome(false);
 }
 
 bool ESPHomeObservatory::UpdateDigitalInputs()
@@ -283,6 +361,15 @@ void ESPHomeObservatory::ESPHomeEntityDiscovered(const INDI::ESPHome::EntityInfo
 
 void ESPHomeObservatory::ESPHomeStateChanged(const INDI::ESPHome::State &state)
 {
+    if (state.type == INDI::ESPHome::EntityType::Cover && state.key == m_DomeCoverKey)
+    {
+        if (state.position <= 0.01F)
+            syncDomeState(true);
+        else if (state.position >= 0.99F)
+            syncDomeState(false);
+        return;
+    }
+
     if (state.type == INDI::ESPHome::EntityType::Switch)
     {
         const int index = outputIndexForKey(state.key);
@@ -305,6 +392,11 @@ void ESPHomeObservatory::ESPHomeStateChanged(const INDI::ESPHome::State &state)
 
     if (state.type == INDI::ESPHome::EntityType::BinarySensor)
     {
+        if (state.key == m_ParkedStateKey && state.boolValue)
+            syncDomeState(true);
+        else if (state.key == m_UnparkedStateKey && state.boolValue)
+            syncDomeState(false);
+
         const int index = inputIndexForKey(state.key);
         if (index < 0)
             return;
@@ -345,6 +437,62 @@ void ESPHomeObservatory::resetBindings()
     m_WeatherBindings.clear();
 }
 
+void ESPHomeObservatory::resetDomeEndpoints()
+{
+    m_DomeCoverKey = 0;
+    m_ParkCommand = {};
+    m_UnparkCommand = {};
+    m_ParkedStateKey = 0;
+    m_UnparkedStateKey = 0;
+}
+
+bool ESPHomeObservatory::resolveDomeEndpoints()
+{
+    resetDomeEndpoints();
+    bool resolved = true;
+
+    const auto cover = findDomeEndpoint(DomeEndpointTP[DOME_COVER].getText(),
+                                        {INDI::ESPHome::EntityType::Cover});
+    if (cover != nullptr)
+        m_DomeCoverKey = cover->key;
+    else if (!trimASCII(DomeEndpointTP[DOME_COVER].getText()).empty())
+        resolved = false;
+
+    const auto parkCommand = findDomeEndpoint(DomeEndpointTP[DOME_PARK_COMMAND].getText(),
+                             {INDI::ESPHome::EntityType::Switch, INDI::ESPHome::EntityType::Button});
+    if (parkCommand != nullptr)
+        m_ParkCommand = {parkCommand->type, parkCommand->key};
+    else if (!trimASCII(DomeEndpointTP[DOME_PARK_COMMAND].getText()).empty())
+        resolved = false;
+
+    const auto unparkCommand = findDomeEndpoint(DomeEndpointTP[DOME_UNPARK_COMMAND].getText(),
+                               {INDI::ESPHome::EntityType::Switch, INDI::ESPHome::EntityType::Button});
+    if (unparkCommand != nullptr)
+        m_UnparkCommand = {unparkCommand->type, unparkCommand->key};
+    else if (!trimASCII(DomeEndpointTP[DOME_UNPARK_COMMAND].getText()).empty())
+        resolved = false;
+
+    const auto parkedState = findDomeEndpoint(DomeEndpointTP[DOME_PARKED_STATE].getText(),
+                             {INDI::ESPHome::EntityType::BinarySensor});
+    if (parkedState != nullptr)
+        m_ParkedStateKey = parkedState->key;
+    else if (!trimASCII(DomeEndpointTP[DOME_PARKED_STATE].getText()).empty())
+        resolved = false;
+
+    const auto unparkedState = findDomeEndpoint(DomeEndpointTP[DOME_UNPARKED_STATE].getText(),
+                               {INDI::ESPHome::EntityType::BinarySensor});
+    if (unparkedState != nullptr)
+        m_UnparkedStateKey = unparkedState->key;
+    else if (!trimASCII(DomeEndpointTP[DOME_UNPARKED_STATE].getText()).empty())
+        resolved = false;
+
+    DomeEndpointTP.setState(resolved ? IPS_OK : IPS_ALERT);
+    if (isConnected())
+        DomeEndpointTP.apply();
+
+    return resolved;
+}
+
 void ESPHomeObservatory::updateDeviceInfoProperty()
 {
     const auto &info = getESPHomeDeviceInfo();
@@ -372,6 +520,106 @@ bool ESPHomeObservatory::hasPendingESPHomeData() const
 
     const auto result = select(PortFD + 1, &readSet, nullptr, nullptr, &timeout);
     return result > 0 && FD_ISSET(PortFD, &readSet);
+}
+
+IPState ESPHomeObservatory::commandDome(bool park)
+{
+    if (park && INDI::Dome::isLocked())
+    {
+        LOG_INFO("Cannot park ESPHome dome when mount is locking. See Mount Policy in Options tab.");
+        return IPS_ALERT;
+    }
+
+    if (!resolveDomeEndpoints())
+    {
+        LOG_ERROR("ESPHome dome endpoints are not resolved.");
+        return IPS_ALERT;
+    }
+
+    if (m_DomeCoverKey != 0)
+    {
+        const auto command = park ? INDI::ESPHome::CoverCommand::Close : INDI::ESPHome::CoverCommand::Open;
+        if (!commandESPHomeCover(m_DomeCoverKey, command))
+            return IPS_ALERT;
+
+        LOGF_INFO("ESPHome dome %s command sent to cover endpoint.", park ? "park" : "unpark");
+        return IPS_BUSY;
+    }
+
+    const auto &endpoint = park ? m_ParkCommand : m_UnparkCommand;
+    if (endpoint.key == 0)
+    {
+        LOGF_ERROR("No ESPHome %s endpoint is configured.", park ? "park/close" : "unpark/open");
+        return IPS_ALERT;
+    }
+
+    if (!commandDomeEndpoint(endpoint))
+        return IPS_ALERT;
+
+    LOGF_INFO("ESPHome dome %s command sent.", park ? "park" : "unpark");
+    return hasDomeStateFeedback(park) ? IPS_BUSY : IPS_OK;
+}
+
+bool ESPHomeObservatory::commandDomeEndpoint(const CommandEndpoint &endpoint)
+{
+    switch (endpoint.type)
+    {
+        case INDI::ESPHome::EntityType::Switch:
+            return commandESPHomeSwitch(endpoint.key, true);
+
+        case INDI::ESPHome::EntityType::Button:
+            return commandESPHomeButton(endpoint.key);
+
+        default:
+            return false;
+    }
+}
+
+bool ESPHomeObservatory::hasDomeStateFeedback(bool park) const
+{
+    if (m_DomeCoverKey != 0)
+        return true;
+
+    return park ? m_ParkedStateKey != 0 : m_UnparkedStateKey != 0;
+}
+
+void ESPHomeObservatory::syncDomeState(bool parked)
+{
+    if (isParked() == parked && ParkSP.getState() == IPS_OK)
+        return;
+
+    LOGF_INFO("ESPHome dome is %s.", parked ? "parked" : "unparked");
+    SetParked(parked);
+}
+
+const INDI::ESPHome::EntityInfo *ESPHomeObservatory::findDomeEndpoint(const std::string &endpoint,
+        const std::vector<INDI::ESPHome::EntityType> &allowedTypes) const
+{
+    auto value = trimASCII(endpoint);
+    if (value.empty())
+        return nullptr;
+
+    const auto separator = value.find(':');
+    if (separator != std::string::npos)
+    {
+        const auto requestedType = endpointTypeFromPrefix(trimASCII(value.substr(0, separator)));
+        value = trimASCII(value.substr(separator + 1));
+
+        if (value.empty() || requestedType == INDI::ESPHome::EntityType::Unknown)
+            return nullptr;
+
+        if (std::find(allowedTypes.begin(), allowedTypes.end(), requestedType) == allowedTypes.end())
+            return nullptr;
+
+        return findESPHomeEntity(requestedType, value);
+    }
+
+    const auto type = std::find_if(allowedTypes.begin(), allowedTypes.end(), [this, &value](const auto oneType)
+    {
+        return findESPHomeEntity(oneType, value) != nullptr;
+    });
+
+    return type == allowedTypes.end() ? nullptr : findESPHomeEntity(*type, value);
 }
 
 std::string ESPHomeObservatory::entityLabel(const INDI::ESPHome::EntityInfo &entity)
